@@ -1,0 +1,744 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PLPI BAR Automation Wireframe</title>
+    <link rel="stylesheet" href="styles.css?v=20260708-modern-font-style">
+  </head>
+  <body class="pre-login">
+    <div class="plpi-app">
+      <header class="window-title">
+        <div class="title-left">
+          <span class="app-badge">PiP</span>
+          <span>PLPI... ( Version : 17.0.0.0 ) -</span>
+        </div>
+        <div class="window-controls" aria-label="Window controls">
+          <span>_</span>
+          <span>[]</span>
+          <span>X</span>
+        </div>
+      </header>
+
+      <nav class="top-toolbar" aria-label="PLPI toolbar">
+        <button class="toolbar-item" type="button">
+          <span class="toolbar-icon machine"></span>
+          <span>Machine</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="label-printing">
+          <span class="toolbar-icon pi-label-print"></span>
+          <span>PI Label Print</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="packing-list">
+          <span class="toolbar-icon goods-in"></span>
+          <span>Pre Printed Material (Goods In)</span>
+        </button>
+        <button class="toolbar-item" type="button">
+          <span class="toolbar-icon goods-checker"></span>
+          <span>Pre Printed Material (Checker)</span>
+        </button>
+        <button class="toolbar-item" type="button">
+          <span class="toolbar-icon goods-stock"></span>
+          <span>Pre Printed Material (Stock Controller)</span>
+        </button>
+        <button class="toolbar-item" type="button">
+          <span class="toolbar-icon ppm-audit"></span>
+          <span>PPM Audit</span>
+        </button>
+        <button class="toolbar-item" type="button">
+          <span class="toolbar-icon ppm-locations"></span>
+          <span>PPM Locations</span>
+        </button>
+        <button class="toolbar-item" type="button">
+          <span class="toolbar-icon ppm-audit-history"></span>
+          <span>PPM Audit History</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="regulatory-task">
+          <span class="toolbar-icon regulatory-task"></span>
+          <span>Regulatory Task</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="rp-pack">
+          <span class="toolbar-icon pre-qp-icon"></span>
+          <span>RPi Task</span>
+        </button>
+        <button class="toolbar-item" type="button">
+          <span class="toolbar-icon regulatory-log"></span>
+          <span>Regulatory Log</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="bar-creation">
+          <span class="toolbar-icon product-add"></span>
+          <span>Product Add</span>
+        </button>
+        <button class="toolbar-item" type="button">
+          <span class="toolbar-icon product"></span>
+          <span>Product</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="packing-list">
+          <span class="toolbar-icon packing-list-icon"></span>
+          <span>Packing List</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="pre-qp">
+          <span class="toolbar-icon pre-qp-icon"></span>
+          <span>Pre QP</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="pre-assembly-qc">
+          <span class="toolbar-icon double-check"></span>
+          <span>Pre Assembly</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="batch-checker">
+          <span class="toolbar-icon batch-checker"></span>
+          <span>Batch Checker</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="bar-creation">
+          <span class="toolbar-icon bns-batch-add"></span>
+          <span>BNS Batch Add</span>
+        </button>
+        <button class="toolbar-item" type="button" data-login-stage="label-printing">
+          <span class="toolbar-icon printer"></span>
+          <span>Printer</span>
+        </button>
+      </nav>
+
+      <main class="desktop">
+        <section class="mdi-area" aria-label="PLPI working area">
+          <div class="welcome-window hidden" id="welcome-window">
+            <div class="internal-title">
+              <span>BAR Automation - Module Access</span>
+              <button type="button" class="close-button">X</button>
+            </div>
+            <div class="welcome-body">
+              <div>
+                <p class="screen-kicker">BAR workflow</p>
+                <h1>Batch Assembly Record process</h1>
+                <p class="intro-copy">Select a BAR process module. Each stage opens through its own login, then shows a dedicated queue, digital checklist, evidence capture, exceptions, audit trail, and handoff controls.</p>
+                <div class="welcome-actions">
+                  <button class="classic-button primary" type="button" data-open-dashboard>Open Module Dashboard</button>
+                  <button class="classic-button" type="button" data-login-stage="bar-creation">Login to BNS Batch Add</button>
+                </div>
+              </div>
+              <div class="login-card">
+                <h2>Stage Login Required</h2>
+                <p>Users only see the queue and workflow for the module they log in to.</p>
+                <dl>
+                  <dt>Operator modules</dt>
+                  <dd>BAR Creation, Printing, Folding, Carton / Braille, Assembly</dd>
+                  <dt>Quality modules</dt>
+                  <dd>Pre Assembly, Post-Assembly QC, Pre-QP, QP Release</dd>
+                  <dt>Controls</dt>
+                  <dd>User, role, date, time, checklist changes, and approvals are captured in the audit trail.</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+
+          <section class="internal-window hidden" id="dashboard-window">
+            <div class="internal-title">
+              <span>BAR Dashboard - Stage Workflow</span>
+              <div class="internal-actions">
+                <button type="button" class="title-tool">_</button>
+                <button type="button" class="title-tool">[]</button>
+                <button type="button" class="title-tool" data-close-dashboard>X</button>
+              </div>
+            </div>
+            <div class="dashboard-body">
+              <div class="summary-row">
+                <div class="summary-box">
+                  <span>Active BARs</span>
+                  <strong>42</strong>
+                  <small>11 due today</small>
+                </div>
+                <div class="summary-box warning">
+                  <span>Holds / Exceptions</span>
+                  <strong>7</strong>
+                  <small>2 waiting Regulatory</small>
+                </div>
+                <div class="summary-box">
+                  <span>QP Ready</span>
+                  <strong>5</strong>
+                  <small>Complete digital evidence</small>
+                </div>
+                <div class="summary-box">
+                  <span>Average Cycle</span>
+                  <strong>3.8 d</strong>
+                  <small>BAR creation to release</small>
+                </div>
+              </div>
+
+              <div class="section-header">
+                <div>
+                  <h2>BAR workflow modules</h2>
+                  <p>Stage-specific access from BAR Creation through QP Release.</p>
+                </div>
+                <button class="classic-button primary" type="button" data-login-stage="bar-creation">Open BNS Batch Add</button>
+              </div>
+
+              <div class="stage-strip" id="stage-strip"></div>
+
+              <div class="dashboard-grid">
+                <section class="classic-panel">
+                  <div class="panel-title">My BAR Queue</div>
+                  <table class="classic-table">
+                    <thead>
+                      <tr>
+                        <th>BAR</th>
+                        <th>Product</th>
+                        <th>Stage</th>
+                        <th>Status</th>
+                        <th>Owner</th>
+                        <th>Due</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr data-login-stage="label-printing">
+                        <td>03A1582</td>
+                        <td>Flutiform 250/10mcg</td>
+                        <td>Label Printing</td>
+                        <td><span class="status active-status">In Progress</span></td>
+                        <td>Print Team</td>
+                        <td>Today 14:00</td>
+                      </tr>
+                      <tr data-login-stage="pre-assembly-qc">
+                        <td>BAR-240621</td>
+                        <td>Omeprazole 10mg</td>
+                        <td>Pre Assembly</td>
+                        <td><span class="status hold-status">Hold</span></td>
+                        <td>QC</td>
+                        <td>Today 15:30</td>
+                      </tr>
+                      <tr data-login-stage="room-allocation">
+                        <td>BAR-240626</td>
+                        <td>Flutiform 250/10mcg</td>
+                        <td>Production Controller</td>
+                        <td><span class="status active-status">In Progress</span></td>
+                        <td>Production Control</td>
+                        <td>Today 16:00</td>
+                      </tr>
+                      <tr data-login-stage="assembly-room">
+                        <td>BAR-240627</td>
+                        <td>Metformin 500mg</td>
+                        <td>Assembly Room</td>
+                        <td><span class="status active-status">In Progress</span></td>
+                        <td>Room 4</td>
+                        <td>Tomorrow</td>
+                      </tr>
+                      <tr data-login-stage="qp-release">
+                        <td>BAR-240603</td>
+                        <td>Amlodipine 5mg</td>
+                        <td>QP Release</td>
+                        <td><span class="status done-status">Ready</span></td>
+                        <td>QP</td>
+                        <td>Today 11:00</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                <section class="classic-panel">
+                  <div class="panel-title">Electronic Batch Pack</div>
+                  <div class="pack-grid">
+                    <div>
+                      <span>Selected B&S Batch Number</span>
+                      <strong>03A1582</strong>
+                    </div>
+                    <div>
+                      <span>Documents</span>
+                      <strong>18 / 20</strong>
+                    </div>
+                    <div>
+                      <span>Checks</span>
+                      <strong>64 / 71</strong>
+                    </div>
+                  </div>
+                  <ul class="record-list">
+                    <li><span class="record-type">PCL</span> Product Check Log <strong>Approved</strong></li>
+                    <li><span class="record-type">IMG</span> First and last label evidence <strong>Pending</strong></li>
+                    <li><span class="record-type">CHK</span> Digital line clearance <strong>Complete</strong></li>
+                    <li><span class="record-type">AUD</span> Electronic approval trail <strong>Current</strong></li>
+                  </ul>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section class="internal-window module-window hidden" id="module-window">
+            <div class="internal-title">
+              <span id="module-window-title">Module</span>
+              <div class="internal-actions">
+                <button type="button" class="title-tool">_</button>
+                <button type="button" class="title-tool">[]</button>
+                <button type="button" class="title-tool" data-close-module>X</button>
+              </div>
+            </div>
+            <div class="module-body">
+              <aside class="module-queue">
+                <div class="panel-title">Stage Queue</div>
+                <label class="classic-search-label">
+                  Search : 
+                  <input class="classic-search-input" type="search" value="" style="width: calc(100% - 10px);">
+                </label>
+                <label>
+                  Priority
+                  <select>
+                    <option value=""></option>
+                    <option>Urgent</option>
+                    <option>Routine</option>
+                  </select>
+                </label>
+                <div class="queue-cards" id="module-queue"></div>
+              </aside>
+
+              <section class="module-work">
+                <div class="module-header">
+                  <div>
+                    <span class="screen-kicker" id="stage-code">Stage</span>
+                    <h2 id="stage-title">Module</h2>
+                    <p id="login-context">Logged in user context</p>
+                  </div>
+                  <button class="classic-button primary" type="button">Complete Stage</button>
+                </div>
+
+                <div class="batch-strip">
+                  <div>
+                    <span>B&S Batch Number</span>
+                    <strong>03A1582</strong>
+                  </div>
+                  <div>
+                    <span>Product</span>
+                    <strong>Flutiform 250/10mcg</strong>
+                  </div>
+                  <div>
+                    <span>Batch</span>
+                    <strong>MF-98211</strong>
+                  </div>
+                  <div>
+                    <span>Quantity</span>
+                    <strong>12,400</strong>
+                  </div>
+                </div>
+
+                <div class="tabs">
+                  <button class="tab active" type="button" data-tab="checks">Checks</button>
+                  <button class="tab" type="button" data-tab="evidence">Evidence</button>
+                  <button class="tab" type="button" data-tab="exceptions">Exceptions</button>
+                  <button class="tab" type="button" data-tab="audit">Audit Trail</button>
+                </div>
+
+                <div class="tab-panel active" id="checks-panel">
+                  <div id="stage-work-content"></div>
+                </div>
+
+                <div class="tab-panel" id="evidence-panel">
+                  <div class="panel-title">Evidence Capture</div>
+                  <div class="evidence-grid" id="stage-evidence"></div>
+                </div>
+
+                <div class="tab-panel" id="exceptions-panel">
+                  <div class="panel-title">Exception Handling</div>
+                  <div class="exception-box">
+                    <div>
+                      <strong id="exception-title">No active exception</strong>
+                      <p id="exception-copy">Mismatches, missing evidence, or failed checks are held here until resolved.</p>
+                    </div>
+                    <button class="classic-button danger" type="button">Raise Hold</button>
+                  </div>
+                  <table class="classic-table compact">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Owner</th>
+                        <th>Status</th>
+                        <th>Last update</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Document mismatch</td>
+                        <td>Regulatory</td>
+                        <td><span class="status hold-status">Open</span></td>
+                        <td>10:42</td>
+                      </tr>
+                      <tr>
+                        <td>Quantity variance</td>
+                        <td>Production Control</td>
+                        <td><span class="status done-status">Closed</span></td>
+                        <td>Yesterday</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="tab-panel" id="audit-panel">
+                  <div class="panel-title">Electronic Audit Trail</div>
+                  <ol class="audit-list" id="audit-list"></ol>
+                </div>
+              </section>
+
+              <aside class="module-context">
+                <div class="panel-title">Batch Evidence Pack</div>
+                <div class="progress-block">
+                  <div>
+                    <span>Checks complete</span>
+                    <strong id="checks-progress">0%</strong>
+                  </div>
+                  <div class="progress-bar"><i id="checks-bar"></i></div>
+                  <div>
+                    <span>Evidence uploaded</span>
+                    <strong id="evidence-progress">0%</strong>
+                  </div>
+                  <div class="progress-bar"><i id="evidence-bar"></i></div>
+                </div>
+                <div class="context-section">
+                  <h3>Core records</h3>
+                  <ul>
+                    <li>BAR pack</li>
+                    <li>Product Check Log</li>
+                    <li>Sample / mock-up evidence</li>
+                    <li>Line clearance records</li>
+                    <li>Electronic signatures</li>
+                  </ul>
+                </div>
+                <div class="context-section">
+                  <h3>Controls</h3>
+                  <ul id="phase-controls"></ul>
+                </div>
+              </aside>
+            </div>
+          </section>
+        </section>
+
+        <aside class="right-launcher" aria-label="PLPI module launcher">
+          <button class="launcher-item" type="button">
+            <span class="launcher-icon users"></span>
+            <span>Users</span>
+          </button>
+          <button class="launcher-item" type="button" data-login-stage="leaflet-folding">
+            <span class="launcher-icon leaflet"></span>
+            <span>Leaflet Folding</span>
+          </button>
+          <button class="launcher-item" type="button" data-login-stage="room-allocation">
+            <span class="launcher-icon factory"></span>
+            <span>Production Controller</span>
+          </button>
+          <button class="launcher-item" type="button" data-login-stage="post-assembly-qc">
+            <span class="launcher-icon checkout"></span>
+            <span>Check IN/OUT</span>
+          </button>
+          <button class="launcher-item" type="button" data-login-stage="assembly-room">
+            <span class="launcher-icon room"></span>
+            <span>Assembly Room</span>
+          </button>
+          <button class="launcher-item" type="button" data-login-stage="post-assembly-qc">
+            <span class="launcher-icon production-check"></span>
+            <span>Production Checking</span>
+          </button>
+          <button class="launcher-item" type="button" data-login-stage="qp-certified">
+            <span class="launcher-icon release-log"></span>
+            <span>QP Certified Batches</span>
+          </button>
+          <button class="launcher-item" type="button" data-login-stage="qp-release">
+            <span class="launcher-icon release-label"></span>
+            <span>QP Release Dashboard</span>
+          </button>
+          <button class="launcher-item" type="button">
+            <span class="launcher-icon report"></span>
+            <span>PLPI Report</span>
+          </button>
+          <button class="launcher-item" type="button">
+            <span class="launcher-icon logout"></span>
+            <span>Logout</span>
+          </button>
+          <button class="launcher-item" type="button">
+            <span class="launcher-icon exit"></span>
+            <span>Exit</span>
+          </button>
+        </aside>
+      </main>
+
+      <footer class="status-bar">
+        <strong>Tuesday -- June 16, 2026</strong>
+        <span id="status-message">Ready</span>
+      </footer>
+    </div>
+
+    <div class="modal-backdrop hidden" id="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
+      <div class="login-window">
+        <div class="internal-title">
+          <span id="login-title">Login</span>
+          <button type="button" class="close-button" data-close-login>X</button>
+        </div>
+        <div class="login-body">
+          <label>
+            User Name
+            <input id="login-user" type="text" value="stage.user">
+          </label>
+          <label>
+            Password
+            <input id="login-password" type="password" value="password">
+          </label>
+          <div class="login-actions">
+            <button class="classic-button" type="button" data-close-login>Cancel</button>
+            <button class="classic-button primary" type="button" id="login-submit">Login</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="signoff-modal" role="dialog" aria-modal="true" aria-labelledby="signoff-title">
+      <div class="confirm-window">
+        <div class="internal-title">
+          <span id="signoff-title">Confirm Sign Off</span>
+          <button type="button" class="close-button" data-signoff-no>X</button>
+        </div>
+        <div class="confirm-body">
+          <h2 id="signoff-header">Are you sure you want to sign off?</h2>
+          <div class="confirm-actions">
+            <button class="classic-button" type="button" data-signoff-no>No</button>
+            <button class="classic-button primary" type="button" id="signoff-yes">Yes, Sign Off</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="app-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title">
+      <div class="confirm-window app-confirm-window">
+        <div class="internal-title">
+          <span id="app-confirm-title">Confirm Sign Off</span>
+          <button type="button" class="close-button" data-app-confirm-no>X</button>
+        </div>
+        <div class="confirm-body app-confirm-body">
+          <div class="app-confirm-icon">OK</div>
+          <div>
+            <h2 id="app-confirm-header">Are you sure you want to sign off?</h2>
+            <p id="app-confirm-copy" style="display: none;">Are you sure to continue with user sign off?</p>
+          </div>
+          <div class="confirm-actions">
+            <button class="classic-button" type="button" data-app-confirm-no>No</button>
+            <button class="classic-button primary" type="button" id="app-confirm-yes">Yes, Sign Off</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="create-bar-modal" role="dialog" aria-modal="true" aria-labelledby="create-bar-title">
+      <div class="confirm-window">
+        <div class="internal-title">
+          <span id="create-bar-title">Print BAR Confirmation</span>
+          <button type="button" class="close-button" data-create-bar-no>X</button>
+        </div>
+        <div class="confirm-body">
+          <h2 id="create-bar-header">Are you sure you want to Print BAR?</h2>
+          <p id="create-bar-copy">Do you want to create BAR for the selected Batch_NO?</p>
+          <div class="confirm-actions">
+            <button class="classic-button primary" type="button" id="create-bar-yes">Yes</button>
+            <button class="classic-button" type="button" data-create-bar-no>No</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="mfg-popup-modal" role="dialog" aria-modal="true" aria-labelledby="mfg-popup-title">
+      <div class="confirm-window" style="width: 550px;">
+        <div class="internal-title">
+          <span id="mfg-popup-title">frmProductMFGList</span>
+          <button type="button" class="close-button" data-close-mfg-popup>X</button>
+        </div>
+        <div class="confirm-body" style="padding: 10px;">
+          <div class="packing-grid-shell" style="height: 180px; overflow-y: auto;">
+            <table class="classic-table" style="font-size: 11px; width: 100%;">
+              <thead>
+                <tr>
+                  <th style="width: 40px;">Select</th>
+                  <th>MFG_NAME</th>
+                  <th>MFG_ADD</th>
+                </tr>
+              </thead>
+              <tbody id="mfg-popup-body">
+                <!-- filled dynamically -->
+              </tbody>
+            </table>
+          </div>
+          <div class="confirm-actions" style="margin-top: 15px; justify-content: center;">
+            <button class="classic-button primary" type="button" id="mfg-popup-select-btn">Select Manufacturer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="split-batch-modal" role="dialog" aria-modal="true" aria-labelledby="split-batch-title">
+      <div class="confirm-window split-batch-window" style="width: 500px;">
+        <div class="internal-title">
+          <span id="split-batch-title" class="sr-only">Edit line values</span>
+          <button type="button" class="close-button" data-close-split-batch>X</button>
+        </div>
+        <div class="confirm-body" style="padding: 15px; text-align: center;">
+          <div class="packing-grid-shell split-batch-grid-shell" style="height: auto; overflow: visible; margin-bottom: 10px;">
+            <table class="classic-table" style="width: 100%; font-size: 11px;">
+              <thead>
+                <tr>
+                  <th>MFG Lot No</th>
+                  <th>Quantity</th>
+                  <th>Expiry Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><input class="grid-edit-input" id="split-batch-no" value="" style="width: 100%;"></td>
+                  <td><input class="grid-edit-input" id="split-qty" type="number" value="" style="width: 100%;"></td>
+                  <td><input class="grid-edit-input" id="split-exp" placeholder="DD-MM-YYYY" value="" style="width: 100%;"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="confirm-actions" style="justify-content: center;">
+            <button class="classic-button primary" type="button" id="split-batch-save-btn">SAVE</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="batch-check-verify-modal" role="dialog" aria-modal="true" aria-labelledby="batch-check-verify-title">
+      <div class="confirm-window" style="width: 780px;">
+        <div class="internal-title">
+          <span id="batch-check-verify-title">Batch Check - Detail Verification</span>
+          <button type="button" class="close-button" data-close-batch-check-verify>X</button>
+        </div>
+        <div class="confirm-body" style="padding: 15px;">
+          <h3 style="margin-bottom: 10px;">Verify Details Against Reference Sample</h3>
+          <p style="font-size: 11px; margin-bottom: 15px; color: #555;">Confirm that all details match the physical reference sample before approval.</p>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; text-align: left; font-size: 11px;">
+            <div style="background: #f4f6f8; padding: 10px; border: 1px solid #dcdcdc; border-radius: 4px;">
+              <strong style="display: block; margin-bottom: 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px;">System Records</strong>
+              <div style="margin-bottom: 4px;">Product: <strong id="verify-sys-product"></strong></div>
+              <div style="margin-bottom: 4px;">Foreign Name: <strong id="verify-sys-foreign"></strong></div>
+              <div style="margin-bottom: 4px;">Strength: <strong id="verify-sys-strength"></strong></div>
+              <div style="margin-bottom: 4px;">Pack Size: <strong id="verify-sys-pack"></strong></div>
+              <div style="margin-bottom: 4px;">ECMA: <strong id="verify-sys-ecma"></strong></div>
+              <div style="margin-bottom: 4px;">Batch No: <strong id="verify-sys-batch"></strong></div>
+              <div style="margin-bottom: 4px;">Expiry: <strong id="verify-sys-expiry"></strong></div>
+            </div>
+            
+            <div style="background: #fff8f0; padding: 10px; border: 1px solid #ffd0a0; border-radius: 4px;">
+              <strong style="display: block; margin-bottom: 8px; border-bottom: 1px solid #ffc080; padding-bottom: 4px; color: #b25000;">Sample Reference Details</strong>
+              <div style="margin-bottom: 4px;"><label><input type="checkbox" id="chk-verify-product"> Product Name matches</label></div>
+              <div style="margin-bottom: 4px;"><label><input type="checkbox" id="chk-verify-foreign"> Foreign Name matches</label></div>
+              <div style="margin-bottom: 4px;"><label><input type="checkbox" id="chk-verify-strength"> Strength matches</label></div>
+              <div style="margin-bottom: 4px;"><label><input type="checkbox" id="chk-verify-pack"> Pack Size matches</label></div>
+              <div style="margin-bottom: 4px;"><label><input type="checkbox" id="chk-verify-ecma"> ECMA matches</label></div>
+              <div style="margin-bottom: 4px;"><label><input type="checkbox" id="chk-verify-batch"> Batch Number matches</label></div>
+              <div style="margin-bottom: 4px;"><label><input type="checkbox" id="chk-verify-expiry"> Expiry Date matches</label></div>
+            </div>
+          </div>
+          
+          <div class="confirm-actions" style="justify-content: center;">
+            <button class="classic-button primary" type="button" id="batch-check-confirm-btn" disabled>Confirm & Approve</button>
+            <button class="classic-button" type="button" data-close-batch-check-verify>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="generate-pcl-modal" role="dialog" aria-modal="true" aria-labelledby="generate-pcl-title">
+      <div class="confirm-window" style="width: 700px; max-height: 85vh; display: flex; flex-direction: column;">
+        <div class="internal-title">
+          <span id="generate-pcl-title">Product Check Log (PCL) Sheet</span>
+          <button type="button" class="close-button" data-close-generate-pcl>X</button>
+        </div>
+        <div class="confirm-body" style="padding: 20px; overflow-y: auto; text-align: left; font-family: Arial, sans-serif; font-size: 11px;">
+          <div id="pcl-sheet-container" style="background: white; color: black; line-height: 1.4; margin-bottom: 15px;"></div>
+          </div>
+          
+          <div class="confirm-actions" style="margin-top: 20px; justify-content: center;">
+            <button class="classic-button primary" type="button" id="pcl-clearance-submit-btn" disabled>Verify and Print</button>
+            <button class="classic-button" type="button" data-close-generate-pcl>Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="rp-approval-form-modal" role="dialog" aria-modal="true" aria-labelledby="rp-approval-form-title">
+      <div class="confirm-window" style="width: 750px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="internal-title">
+          <span id="rp-approval-form-title">RPi Checks prior to Re-Labelling</span>
+          <button type="button" class="close-button" data-close-rp-approval-form>X</button>
+        </div>
+        <div class="confirm-body" style="padding: 20px; overflow-y: auto; text-align: left; font-family: Arial, sans-serif; font-size: 11px;">
+          <div id="rp-approval-sheet-container" style="background: white; color: black; line-height: 1.4; margin-bottom: 15px;"></div>
+          
+          <div class="confirm-actions" style="margin-top: 20px; justify-content: center;">
+            <button class="classic-button primary" type="button" id="rp-approval-sheet-submit-btn" disabled>Submit RPi Approval</button>
+            <button class="classic-button" type="button" data-close-rp-approval-form>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="print-preview-modal" role="dialog" aria-modal="true" aria-labelledby="print-preview-title">
+      <div class="print-preview-window">
+        <div class="internal-title">
+          <span id="print-preview-title">Print Preview</span>
+          <button type="button" class="close-button" data-close-print-preview>X</button>
+        </div>
+        <div class="print-preview-body" id="print-preview-body"></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="image-viewer-modal" role="dialog" aria-modal="true" aria-labelledby="image-viewer-title">
+      <div class="confirm-window" style="width: 600px; text-align: center;">
+        <div class="internal-title">
+          <span id="image-viewer-title">Visual Mockup</span>
+          <button type="button" class="close-button" id="close-image-viewer">X</button>
+        </div>
+        <div class="confirm-body" style="padding: 15px;">
+          <img id="image-viewer-img" src="" alt="Mockup Image" style="max-width: 100%; max-height: 450px; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); margin-bottom: 10px;">
+          <div class="confirm-actions" style="margin-top: 15px; justify-content: center;">
+            <button class="classic-button" type="button" id="close-image-viewer-btn">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js?v=20260708-modern-font-style"></script>
+  </body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
