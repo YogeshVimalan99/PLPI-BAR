@@ -1,0 +1,5 @@
+# Keep temporary editor/source snapshots out of the live wireframe.
+wireframe/*.bak-*
+*.zip
+.vscode/
+.agents/
