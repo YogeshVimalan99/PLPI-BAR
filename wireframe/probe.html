@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><body><pre id="out">loading</pre><iframe id="f" src="/index.html?demo=packing-list&probe=1" style="width:1400px;height:900px"></iframe><script>
+setTimeout(() => {
+  try {
+    const d = document.getElementById('f').contentDocument;
+    const checks = {
+      bodyClass: d.body.className,
+      status: d.querySelector('#status-message')?.textContent,
+      moduleClass: d.querySelector('#module-window')?.className,
+      moduleTitle: d.querySelector('#module-window-title')?.textContent,
+      stageContentLength: d.querySelector('#stage-work-content')?.innerHTML.length,
+      stageContentText: d.querySelector('#stage-work-content')?.textContent.slice(0, 500),
+      hasPackingWindow: !!d.querySelector('.packing-list-window'),
+      hasAddTab: !![...d.querySelectorAll('button')].find(b => b.textContent.includes('Add Packing List')),
+      scripts: [...d.scripts].map(s => s.src || 'inline')
+    };
+    document.getElementById('out').textContent = JSON.stringify(checks, null, 2);
+  } catch (err) {
+    document.getElementById('out').textContent = err.stack || String(err);
+  }
+}, 1500);
+</script>
