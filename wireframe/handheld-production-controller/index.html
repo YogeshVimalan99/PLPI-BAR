@@ -1,0 +1,37 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SeUIC Goods In Handheld Wireframe</title>
+  <link rel="stylesheet" href="handheld-production-controller.css">
+</head>
+<body>
+  <main class="wireframe-stage">
+    <section class="seuic-device" aria-label="SeUIC handheld wireframe">
+      <div class="device-speaker" aria-hidden="true"></div>
+      <div class="device-brand">Seuic</div>
+      <div class="device-screen">
+        <div class="android-status"><span id="device-time">10:14</span><span>⚙ ▥</span><span>⌁ ▰ 76%</span></div>
+        <section id="handheld-app" class="app-screen" aria-live="polite"></section>
+      </div>
+      <div class="android-navigation" aria-hidden="true"><span>☰</span><span>⌂</span><span>↩</span></div>
+      <div class="hardware-row" aria-hidden="true"><span>⌫</span><span class="num-key">Num</span><span class="scan-key"></span><span class="fn-key">Fn</span><span>↵</span></div>
+      <div class="hardware-keypad" aria-hidden="true">
+        <span>1<small>F1</small></span><span>2<small>F2</small></span><span>3<small>F3</small></span><span>•<small>*</small></span>
+        <span>4<small>F4</small></span><span>5<small>F5</small></span><span>6<small>F6</small></span><span>0<small>F10</small></span>
+        <span>7<small>F7</small></span><span>8<small>F8</small></span><span>9<small>F9</small></span><span>#<small>↪</small></span>
+      </div>
+    </section>
+    <aside class="screen-guide">
+      <strong>Reference screens</strong>
+      <button type="button" data-jump="menu">1 · Goods In Menu</button>
+      <button type="button" data-jump="details">2 · Stock Take Out</button>
+      <button type="button" data-jump="verify">3 · Scan Box ID</button>
+      <button type="button" data-jump="clearance">4 · Line Clearance</button>
+    </aside>
+  </main>
+  <script src="handheld-production-controller.js"></script>
+</body>
+</html>
+
