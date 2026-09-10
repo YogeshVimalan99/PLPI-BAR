@@ -23,6 +23,7 @@ for (const [name, next] of [
   ['renderGeneratedPackingListSheet', 'openPackingListPreview'],
   ['renderAssemblyReconciliationRows', 'renderAssemblyRoomWork'],
   ['getQpDocumentPack', 'getQpDocumentReview'],
+  ['isQpReleaseLogFinalized', 'getQpReleaseGroups'],
   ['ensureQpUpstreamDemoRecords', 'renderQpSourceDocument'],
   ['renderQpSourceDocument', 'getQpDummyEvidence'],
   ['getQpDummyEvidence', 'getQpAutomaticResults'],
@@ -98,6 +99,10 @@ context.renderQpReleaseLogPaper = () => '<section>QP release log</section>';
 vm.runInContext(functionSource('getBatchRecordStore', 'renderBatchDetails'), context);
 assert.equal(context.archiveApprovedBatch(product), null);
 context.qpReleaseRecords.B1.decision = 'Certified';
+assert.equal(context.archiveApprovedBatch(product), null);
+context.qpReleaseRecords.B1.releaseLogApproved = true;
+context.qpReleaseRecords.B1.releaseLogApprovedAt = '09 Sep 2026, 10:00';
+context.qpReleaseRecords.B1.releaseLog = { signedDateTime: '09 Sep 2026, 10:00' };
 context.qpReleaseRecords.B1.user = 'qp.test';
 const archived = context.archiveApprovedBatch(product);
 assert.equal(archived.documents.length, 13);
@@ -144,7 +149,7 @@ assert.equal(routing.statusMessage.textContent, 'Batch Record opened — approve
 console.log('PASS: Batch Record routes into main content, not status text or generic checklist.');
 context.bnsProducts = [{batch:'DONE'}, {batch:'WAIT'}, {batch:'ALLDONE'}];
 context.preQpCheckedBatchNumbers = ['DONE','WAIT','ALLDONE'];
-context.qpReleaseRecords = {DONE:{decision:'Certified'}, WAIT:{qpReady:true}, ALLDONE:{decision:'Certified'}};
+context.qpReleaseRecords = {DONE:{decision:'Certified'}, WAIT:{qpReady:true}, ALLDONE:{decision:'Certified', releaseLogApproved:true, releaseLog:{signedDateTime:'signed'}}};
 context.qpReleasedBatchNumbers = [];
 context.qpIdSearch = '';
 context.qpBatchSearch = '';
@@ -154,8 +159,84 @@ vm.runInContext(functionSource('getQpReleaseGroups', 'getQpGroupStatus'), contex
 const queue = context.getQpReleaseGroups();
 assert.equal(queue.length, 1);
 assert.equal(queue[0].relId, 'MIXED');
-assert.deepStrictEqual(Array.from(queue[0].products, product => product.batch), ['WAIT']);
+assert.deepStrictEqual(Array.from(queue[0].products, product => product.batch), ['DONE', 'WAIT']);
 const cardsSource = functionSource('renderQpReleaseCardsDashboard', 'renderQpReleaseBatchList');
 assert(!cardsSource.includes('data-qp-status-search'));
 assert(cardsSource.includes('<span>Batches</span>'));
-console.log('PASS: approved batches leave review queue; mixed groups retain remaining batches; status filter removed.');
+console.log('PASS: individual approval stays queued; signed Release Log leaves queue; status filter removed.');
+context.qpChecklistOpen = true;
+context.qpSelectedProduct = product;
+context.renderQpSelectedDashboard = () => '<section>Document review</section>';
+context.renderQpChecklistWindow = () => '<form>Existing approval fields</form>';
+vm.runInContext(functionSource('renderQpReleaseWork', 'getQpDecisionRowClass'), context);
+const approvalView = context.renderQpReleaseWork({id:'qp-release'});
+assert(approvalView.includes('<div inert><section>Document review</section></div>'));
+assert(approvalView.includes('<dialog id="qp-approval-dialog"'));
+assert(approvalView.includes('Existing approval fields'));
+context.qpChecklistOpen = false;
+assert(!context.renderQpReleaseWork({id:'qp-release'}).includes('<dialog'));
+assert(functionSource('renderQpReferenceComparisons', 'getQpDummyEvidence').includes('<details class="qp-reference-comparisons"><summary>'));
+assert(!functionSource('renderQpSelectedDashboard', 'renderSystemQpSelectedDashboard').includes('<span>QP Accepted</span>'));
+console.log('PASS: approval modal retains review background; collapsible references; summary counter removed.');
+vm.runInContext(functionSource('getCertifiedPrintProducts', 'renderCertifiedReleaseLabels'), context);
+assert.deepStrictEqual(Array.from(context.getCertifiedPrintProducts(['DONE','ALLDONE']), p => p.batch), ['ALLDONE']);
+const completionSource = functionSource('completeQpRelease', 'getBatchRecordStore');
+assert(!completionSource.includes('qpReleasedBatchNumbers.push'));
+assert(!completionSource.includes('archiveApprovedBatch('));
+const signSource = functionSource('signQpReleaseLog', 'saveQpReleaseLogLegacy');
+assert(signSource.includes('qpReleasedBatchNumbers.push'));
+assert(signSource.includes('archiveApprovedBatch(product)'));
+assert(signSource.includes('groupProducts.some'));
+console.log('PASS: release-label eligibility and downstream handoff wait for full Release Log sign-off.');
+let signedCount = 0, modalCount = 0;
+const signHandlers = {};
+const confirmation = {
+  setAttribute() {}, innerHTML: '',
+  querySelector: selector => ({ addEventListener: (event, handler) => { signHandlers[selector] = handler; }, focus() {} }),
+  addEventListener: (event, handler) => { signHandlers[event] = handler; },
+  showModal() { modalCount++; }, close() {}, remove() {}
+};
+const signContext = {
+  document: { querySelector: () => null, activeElement: { isConnected: true, focus() {} }, createElement: tag => { assert.equal(tag, 'dialog'); return confirmation; }, body: { appendChild() {} } },
+  signQpProcess11: () => { signedCount++; }
+};
+vm.createContext(signContext);
+vm.runInContext(functionSource('requestQpProcess11Confirmation', 'signQpProcess11'), signContext);
+signContext.requestQpProcess11Confirmation();
+assert.equal(modalCount, 1);
+assert(confirmation.innerHTML.includes('Are you sure you want to sign off?'));
+assert(!confirmation.innerHTML.includes('Printed BAR'));
+assert.equal(signedCount, 0);
+signHandlers['[data-process11-sign-cancel]']();
+assert.equal(signedCount, 0);
+signContext.requestQpProcess11Confirmation();
+signHandlers['[data-process11-sign-yes]']();
+assert.equal(signedCount, 1);
+console.log('PASS: Process 11 confirmation uses modal top layer, short prompt, and explicit confirmation.');
+
+const certifiedFixtures = {
+  bnsProducts: [{ batch: 'EXISTING', product: 'Lumigan eye drops' }],
+  qpReleaseRecords: { EXISTING: { approved: false } },
+  postAssemblyRecords: {}, generatedBarRecords: {},
+  qpCertifiedBatchNumbers: [], qpReleasedBatchNumbers: [],
+  ensureQpUpstreamDemoRecords: () => {}
+};
+vm.createContext(certifiedFixtures);
+vm.runInContext(functionSource('ensureQpCertifiedTestData', 'renderQpCertifiedCards'), certifiedFixtures);
+certifiedFixtures.ensureQpCertifiedTestData();
+assert.equal(certifiedFixtures.qpCertifiedBatchNumbers.length, 8);
+assert.equal(certifiedFixtures.qpReleasedBatchNumbers.length, 4);
+assert.equal(certifiedFixtures.bnsProducts.length, 9);
+const seeded = Object.values(certifiedFixtures.qpReleaseRecords).filter(record => record.releaseLogApproved);
+assert.equal(seeded.length, 8);
+assert.deepEqual(seeded.reduce((counts, record) => {
+  counts[record.decision] = (counts[record.decision] || 0) + 1;
+  assert(record.releaseLog.signedDateTime);
+  return counts;
+}, {}), { Certified: 4, Hold: 2, Banding: 1, Rejected: 1 });
+certifiedFixtures.qpReleaseRecords.QPC101.releaseLog.comments = 'Saved user comment';
+certifiedFixtures.ensureQpCertifiedTestData();
+assert.equal(certifiedFixtures.bnsProducts.length, 9);
+assert.equal(certifiedFixtures.qpReleaseRecords.QPC101.releaseLog.comments, 'Saved user comment');
+assert.equal(certifiedFixtures.qpReleaseRecords.EXISTING.approved, false);
+console.log('PASS: eight finalized test batches, four archive-eligible approvals, all tabs, idempotent seeding, preserved user data.');

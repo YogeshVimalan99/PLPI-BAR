@@ -6647,7 +6647,7 @@ input[readonly] {
   font-family: Arial, Helvetica, sans-serif !important;
   margin: 0 auto !important;
   max-width: 1240px !important;
-  min-height: 650px !important;
+  min-height: 0 !important;
   padding: 16px 18px 12px !important;
   width: 100% !important;
 }
@@ -25057,6 +25057,579 @@ body .batchchecker-live-layout .batchchecker-selected-actions {
   }
 }
 
+@media screen {
+  #module-window.rp-pack-mode #stage-work-content > .rp-task-card-page {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  #module-window.rp-pack-mode .rp-task-card-page > .rp-task-queue-tabs {
+    margin-top: 0 !important;
+  }
+}
+/* Goods-in Summary queue: one aligned toolbar and no nested frames. */
+@media screen {
+  #module-window.goods-summary-mode .module-work:has(.goods-summary-search),
+  #module-window.goods-summary-mode #checks-panel:has(.goods-summary-search),
+  #module-window.goods-summary-mode #stage-work-content:has(.goods-summary-search),
+  #module-window.goods-summary-mode .goods-summary-page:has(.goods-summary-search),
+  #module-window.goods-summary-mode .goods-summary-list-shell {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+  #module-window.goods-summary-mode .goods-summary-search {
+    display: flex !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 0 0 10px !important;
+    margin: 0 !important;
+    border: 0 !important;
+  }
+  #module-window.goods-summary-mode #stage-work-content .goods-summary-search > label {
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+    height: 30px !important;
+    font: 11px/30px Tahoma, sans-serif !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    align-self: center !important;
+  }
+  #module-window.goods-summary-mode .goods-summary-search :is(input, button) {
+    height: 30px !important;
+    min-height: 30px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+  }
+  #module-window.goods-summary-mode .goods-summary-search input {
+    width: 190px !important;
+    min-width: 0 !important;
+  }
+  #module-window.goods-summary-mode .goods-summary-queue-count {
+    margin-left: auto;
+    padding: 5px 10px;
+    border: 1px solid #bed0ef;
+    border-radius: 14px;
+    background: #e8f0fc;
+    color: #244579;
+    font: 11px Tahoma, sans-serif;
+    white-space: nowrap;
+  }
+}
+/* PO dashboard: remove outer frames, retaining the original action layout. */
+@media screen {
+  #module-window.batch-checker-mode .batchchecker-live-layout:has(.batchchecker-product-list) .batchchecker-selected-actions {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 6px 10px !important;
+    margin-top: 8px !important;
+    align-items: center !important;
+  }
+  #module-window.batch-checker-mode .module-work:has(.batchchecker-product-list),
+  #module-window.batch-checker-mode #checks-panel:has(.batchchecker-product-list),
+  #module-window.batch-checker-mode .batchchecker-live-layout:has(.batchchecker-product-list) {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+}
+/* BNS Batch Add: retain the working table, without nested outer frames. */
+@media screen {
+  #module-window.bar-creation-mode .module-work:has(.bns-window),
+  #module-window.bar-creation-mode #checks-panel:has(.bns-window) {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+}
+/* Checklist opens over the review cards, with its own bounded scroll area. */
+#rp-checklist-dialog {
+  width: min(1180px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  padding: 12px;
+  border: 1px solid #b7cddd;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 16px 48px #17345040;
+}
+#rp-checklist-dialog::backdrop { background: #142c4b66; }
+#rp-checklist-dialog .rp-checklist-full-window {
+  width: 100% !important;
+  max-width: none !important;
+  height: calc(100vh - 100px) !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+#rp-checklist-dialog .rp-task-checklist-scroll-panel {
+  min-height: 0 !important;
+  overflow-y: auto !important;
+}
+#rp-checklist-dialog .rp-documents-header,
+#rp-checklist-dialog .rp-doc-signoff-row { flex-shrink: 0; }
+/* RPi checklist: remove only its redundant outer work frames. */
+@media screen {
+  #module-window.rp-pack-mode .module-work:has(.rp-checklist-full-window),
+  #module-window.rp-pack-mode #checks-panel:has(.rp-checklist-full-window),
+  #module-window.rp-pack-mode #stage-work-content > .packing-list-panel:has(.rp-checklist-full-window) {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+}
+/* Retain the original review cards; trim only unused space and numbering. */
+@media screen {
+  #module-window .rp-review-card-screen .rp-tile-index { display: none !important; }
+  #module-window .rp-review-card-screen .rp-doc-tile {
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 10px 12px !important;
+    gap: 6px !important;
+  }
+  #module-window .rp-review-card-screen .rp-task-decision-row {
+    margin: 6px 0 !important;
+    flex-wrap: wrap;
+  }
+  #module-window .rp-review-card-screen .rp-task-document-actions { margin-top: 0 !important; }
+  #module-window .rp-review-card-screen .rp-tile-badge.pending {
+    background: #e8f0fc !important;
+    border: 1px solid #bed0ef !important;
+    color: #244579 !important;
+  }
+}
+/* RPi review uses the same compact card surface as Pack Creation. */
+@media screen {
+  #module-window.rp-pack-mode .module-work:has(.rp-review-card-screen),
+  #module-window.rp-pack-mode #checks-panel:has(.rp-review-card-screen),
+  #module-window.rp-pack-mode .packing-list-panel:has(.rp-review-card-screen),
+  #module-window.rp-pack-mode .rp-pack-layout:has(.rp-review-card-screen),
+  #module-window.rp-pack-mode .rp-main-content:has(.rp-review-card-screen) {
+    border: 0 !important; border-radius: 0 !important;
+    box-shadow: none !important; padding: 0 !important;
+    background: transparent !important; min-height: 0 !important;
+  }
+  #module-window .rp-review-card-screen { gap: 8px !important; }
+  #module-window .rp-review-card-screen > .rp-documents-header {
+    padding: 7px 10px !important; min-height: 42px !important;
+    border: 1px solid #c9d5e5 !important; border-left: 3px solid #1e3a8a !important;
+    border-radius: 5px !important; background: #fff !important;
+    margin: 0 !important; box-shadow: none !important;
+  }
+  #module-window .rp-review-card-screen .rp-documents-header h3 { font: 700 14px Tahoma, sans-serif !important; }
+  #module-window .rp-review-card-screen .rp-documents-header p { font: 10px Tahoma, sans-serif !important; }
+  #module-window .rp-review-card-screen .rp-checklist-placeholder {
+    display: flex !important; align-items: center !important; justify-content: space-between !important;
+    flex-wrap: wrap; gap: 8px; padding: 8px 10px !important;
+    border: 1px solid #c9d5e5 !important; background: #fff !important; min-height: 0 !important;
+  }
+  #module-window .rp-review-card-screen .rp-checklist-placeholder h4 { font: 700 12px Tahoma, sans-serif !important; margin: 0 !important; }
+}
+/* RPi Pack Creation queue: remove only the two redundant outer frames. */
+@media screen {
+  #module-window.rp-pack-mode .module-work:has(.rp-documents-list-first, .rp-documents-detail-view, .rp-task-card-page),
+  #module-window.rp-pack-mode #checks-panel:has(.rp-documents-list-first, .rp-documents-detail-view, .rp-task-card-page) {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+}
+@media screen {
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-doc-tile:not(.rp-packing-list-tile) {
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 6px !important;
+    gap: 2px 6px !important;
+    align-content: start !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-tile-action {
+    justify-content: flex-start !important;
+    gap: 5px !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-tile-action button {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 24px !important;
+    min-height: 24px !important;
+    padding: 2px 9px !important;
+    font-size: 10px !important;
+  }
+}
+@media screen {
+  #module-window.rp-pack-mode .rp-documents-detail-view > .rp-doc-signoff-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 8px 16px !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view > .rp-doc-signoff-row > label {
+    flex: 0 1 auto !important;
+    width: auto !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view > .rp-doc-signoff-row > .signoff-action {
+    margin-left: auto !important;
+    flex: 0 0 auto !important;
+  }
+}
+/* Match the merged-PO toolbar to the compact Diagnostic batch strip. */
+@media screen {
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager {
+    display: flex !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 6px 12px !important;
+    min-height: 42px !important;
+    padding: 7px 10px !important;
+    box-sizing: border-box !important;
+    background: #fff !important;
+    border: 1px solid #c9d5e5 !important;
+    border-left: 3px solid #1e3a8a !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager > div {
+    flex: 1 1 260px !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager label {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 6px !important;
+    margin: 0 !important;
+    min-width: 0 !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager label > span {
+    white-space: nowrap;
+    font: 400 11px Tahoma, sans-serif !important;
+    color: #163c56 !important;
+    flex: 0 0 auto;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager :is(select, input, button) {
+    height: 26px !important;
+    min-height: 26px !important;
+    padding: 3px 8px !important;
+    font: 11px Tahoma, sans-serif !important;
+    color: #163c56 !important;
+    border: 1px solid #b7cddd !important;
+    border-radius: 4px !important;
+    box-sizing: border-box !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager select { width: 130px !important; }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager > button {
+    width: auto !important;
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+    margin: 0 !important;
+    padding: 3px 12px !important;
+    background: linear-gradient(#fff, #f0f5f9) !important;
+    box-shadow: 0 1px 2px rgba(17, 41, 78, .08) !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager strong {
+    font: 700 11px Tahoma, sans-serif !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager > div > span {
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager .rp-unmerge-reason-field {
+    flex: 0 1 340px !important;
+    width: 340px !important;
+    max-width: 100% !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-merged-set-manager input {
+    flex: 1 1 180px !important;
+    width: 0 !important;
+    min-width: 0 !important;
+  }
+}
+/* RPi document cards matched to the supplied PDF-card reference. */
+@media screen {
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-document-status-row > .rp-doc-tiles-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)) !important;
+    justify-content: start !important;
+    gap: 10px !important;
+    border: 0 !important;
+    background: transparent !important;
+    padding: 4px 0 !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-doc-tile:not(.rp-packing-list-tile) {
+    background: #fff !important;
+    border: 1px solid #d5dde7 !important;
+    border-left: 1px solid #d5dde7 !important;
+    border-radius: 5px !important;
+    box-shadow: 0 1px 3px rgba(17, 41, 78, .08) !important;
+    padding: 8px 10px !important;
+    grid-template-columns: 40px minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto auto !important;
+    gap: 3px 8px !important;
+    align-self: start !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-doc-tile:not(.rp-packing-list-tile) .rp-tile-index {
+    display: flex !important;
+    grid-column: 1 !important;
+    grid-row: 1 / 3 !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 40px !important;
+    height: 40px !important;
+    background: linear-gradient(#e8eff9, #f0f5fa) !important;
+    border: 1px solid #d8e4f3 !important;
+    border-radius: 5px !important;
+    color: #142c70 !important;
+    font: 700 11px Tahoma, sans-serif !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-doc-tile:not(.rp-packing-list-tile) .rp-tile-header { grid-column: 2 !important; grid-row: 1 !important; }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-doc-tile:not(.rp-packing-list-tile) .rp-tile-title {
+    color: #123952 !important;
+    font: 700 12px Tahoma, sans-serif !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-doc-tile:not(.rp-packing-list-tile) .rp-tile-status { grid-column: 3 !important; grid-row: 1 !important; align-self: start !important; }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-doc-tile:not(.rp-packing-list-tile) .rp-tile-file-name {
+    grid-column: 2 / -1 !important;
+    grid-row: 2 !important;
+    font-size: 10px !important;
+    color: #526a7b !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-doc-tile:not(.rp-packing-list-tile) .rp-tile-action {
+    grid-column: 1 / -1 !important;
+    grid-row: 3 !important;
+    border-top: 0 !important;
+    padding-top: 2px !important;
+    justify-content: space-between !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-tile-badge {
+    border: 0 !important;
+    padding: 4px 9px !important;
+    border-radius: 16px !important;
+    font-size: 9px !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-tile-badge.verified {
+    background: #c9f7e6 !important;
+    color: #176234 !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-tile-badge.pending {
+    background: #fff0ce !important;
+    color: #a44d00 !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-document-status-row {
+    border-left: 0 !important;
+    border-radius: 5px !important;
+    background: #f7faff !important;
+    padding: 6px !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .optional-files-row > .rp-document-status-label {
+    background: #e8f1fc !important;
+    padding: 6px !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-tile-action input[type=file] {
+    margin-left: auto !important;
+    width: 90px !important;
+    color: transparent !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  #module-window.rp-pack-mode .rp-documents-detail-view .rp-tile-action input[type=file]::file-selector-button {
+    font: 10px Tahoma, sans-serif;
+    color: #163c56;
+    border: 1px solid #b7cddd;
+    border-radius: 4px;
+    background: linear-gradient(#fff, #f0f5f9);
+    padding: 4px 8px;
+  }
+}
+/* Packing List only: a single work surface, compact themed tabs and data grid. */
+@media screen {
+  #module-window.packing-list-mode .module-work,
+  #module-window.packing-list-mode #checks-panel,
+  #module-window.packing-list-mode .packing-list-layout,
+  #module-window.packing-list-mode .packing-list-window {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+  #module-window.packing-list-mode .packing-list-window > .packing-list-panel {
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  #module-window.packing-list-mode .packing-tabs {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    margin: 0 0 6px !important;
+    padding: 0 0 6px !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-bottom: 1px solid #c6d7e5 !important;
+  }
+  #module-window.packing-list-mode .packing-tabs > button {
+    font: 11px Tahoma, sans-serif !important;
+    color: #163c56 !important;
+    background: linear-gradient(#fff, #f0f5f9) !important;
+    border: 1px solid #b7cddd !important;
+    border-radius: 5px !important;
+    padding: 5px 12px !important;
+    min-height: 28px !important;
+    height: auto !important;
+  }
+  #module-window.packing-list-mode .packing-tabs > button.active {
+    color: #fff !important;
+    background: linear-gradient(#2787aa, #176680) !important;
+    border-color: #176680 !important;
+    font-weight: 700 !important;
+  }
+  #module-window.packing-list-mode .packing-tabs > button:focus-visible {
+    outline: 2px solid #007eb1;
+    outline-offset: 2px;
+  }
+  #module-window.packing-list-mode .packing-view-search-row {
+    margin: 0 0 6px !important;
+    padding: 5px 8px !important;
+    min-height: 0 !important;
+    background: #f3f8fc !important;
+    border: 1px solid #c6d7e5 !important;
+    border-radius: 4px !important;
+  }
+  #module-window.packing-list-mode .packing-grid-shell {
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  #module-window.packing-list-mode .packing-list-table :is(th, td) {
+    font-family: Tahoma, sans-serif !important;
+    font-size: 11px !important;
+    line-height: 1.4 !important;
+    padding: 5px 7px !important;
+    height: auto !important;
+    border-color: #d5e1ec !important;
+  }
+  #module-window.packing-list-mode .packing-list-table th {
+    color: #163c56 !important;
+    background: linear-gradient(#eaf3f9, #dceaf4) !important;
+  }
+  #module-window.packing-list-mode .packing-list-table :is(input:not([type=checkbox]), button) {
+    font-family: Tahoma, sans-serif !important;
+    font-size: 11px !important;
+    min-height: 26px !important;
+    height: 26px !important;
+  }
+}
+/* Repeated module headings leave no spacer behind; other layout stays intact. */
+@media screen {
+  #module-window #stage-work-content .module-title-following-content {
+    margin-top: 0 !important;
+  }
+  #module-window #stage-work-content .module-title-actions-only {
+    display: flex !important;
+    justify-content: flex-end !important;
+    min-height: 0 !important;
+    gap: 6px !important;
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+  }
+}
+/* Compact PO queue, scoped so the checklist and other modules retain their layout. */
+body .batch-checker-mode .module-work:has(.batchchecker-po-heading),
+body .batch-checker-mode #checks-panel:has(.batchchecker-po-heading),
+body .batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+body .batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) .batchchecker-live-header {
+  display: none !important;
+}
+body .batch-checker-mode .batchchecker-live-layout .batchchecker-po-heading {
+  font: 700 13px Tahoma, sans-serif !important;
+  color: #163c56 !important;
+}
+body .batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) .batchchecker-one-line-filter {
+  margin: 4px 0 !important;
+  padding: 0 4px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+}
+body .batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) .batchchecker-list-wrap {
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow-x: auto !important;
+}
+body .batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) .batchchecker-po-list {
+  margin: 0 !important;
+}
+#module-window.batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) .batchchecker-one-line-filter {
+  gap: 10px 14px !important;
+  margin: 0 0 10px !important;
+  padding: 6px 0 !important;
+}
+#module-window.batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) .batchchecker-one-line-filter :is(label, input, select, button) {
+  font: 13px Tahoma, sans-serif !important;
+}
+#module-window.batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) .batchchecker-one-line-filter :is(input, select, button) {
+  height: 30px !important;
+  min-height: 30px !important;
+  box-sizing: border-box !important;
+}
+#module-window.batch-checker-mode .batchchecker-live-layout:has(.batchchecker-po-heading) .batchchecker-po-list :is(th, td) {
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  padding: 8px 10px !important;
+}
+body .batch-checker-mode .batchchecker-live-layout .batchchecker-po-list th,
+body .batch-checker-mode .batchchecker-live-layout .batchchecker-po-list td {
+  font: 11px Tahoma, sans-serif !important;
+  height: auto !important;
+  line-height: 1.4 !important;
+  padding: 6px 8px !important;
+  text-align: left !important;
+  color: #163c56 !important;
+}
+body .batch-checker-mode .batchchecker-live-layout .batchchecker-po-list th {
+  font-weight: 700 !important;
+  background: linear-gradient(#eaf3f9, #dceaf4) !important;
+}
+body .batch-checker-mode .batchchecker-live-layout .batchchecker-po-list td strong { font-size: inherit !important; }
+body .batch-checker-mode .batchchecker-live-layout .batchchecker-po-list tbody tr:hover td { background: #eaf3fb !important; }
 /* Archived Batch Checker layout: RPi Approved PO List and PO Dashboard only. */
 body .batchchecker-live-layout {
   display: block !important;
@@ -26836,12 +27409,17 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
 .qp-release-mode .qp-certified-cards .qp-rel-card {
   min-height: 0 !important;
   height: auto !important;
-  padding: 10px 12px !important;
+  padding: 8px 10px !important;
   align-self: start;
 }
-.qp-release-mode .qp-certified-cards .qp-certified-card-summary { gap: 4px; padding: 7px 0; }
+.qp-release-mode .qp-certified-cards .qp-certified-card-summary { gap: 3px; padding: 5px 0; }
+.qp-certified-card-totals { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .qp-release-mode .qp-certified-cards .qp-rel-card-top { padding-bottom: 6px !important; }
-.qp-release-mode .qp-certified-cards .qp-rel-card footer { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.qp-release-mode .qp-certified-cards .qp-rel-card footer { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: space-between !important; }
+.right-launcher > .module-launcher-toggle { grid-column: 1 / -1; justify-self: end; min-width: 26px !important; width: 26px; min-height: 24px !important; padding: 0 !important; font-size: 20px; line-height: 22px; }
+.desktop.modules-collapsed { grid-template-columns: minmax(0, 1fr) 36px !important; }
+.desktop.modules-collapsed > .right-launcher { width: 36px !important; min-width: 0 !important; box-sizing: border-box; grid-template-columns: 1fr; padding: 10px 4px !important; gap: 0 !important; }
+.desktop.modules-collapsed > .right-launcher > .launcher-item { display: none !important; }
 .qp-release-mode .qp-certified-cards .qp-rel-footer-actions {
   justify-content: flex-start;
   gap: 12px;
@@ -26855,6 +27433,75 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
 .qp-release-mode .qp-awaiting-cards .qp-rel-card-meta { margin: 7px 0 !important; min-height: 0 !important; grid-template-columns: .65fr 1fr 1fr !important; }
 .qp-release-mode .qp-awaiting-cards .qp-rel-card-meta > div { padding: 5px 7px !important; }
 .qp-release-mode .qp-awaiting-cards .qp-rel-card footer { margin: 0 !important; }
+.qp-release-mode .qp-auto-classic .qp-digital-summary { grid-template-columns: repeat(3, minmax(75px, 110px)) minmax(120px, 1fr); }
+.qp-auto-classic .qp-reference-comparisons { padding: 0; overflow: hidden; }
+.qp-auto-classic .qp-reference-comparisons summary,
+.qp-auto-classic .qp-auto-checks summary { background: linear-gradient(#e7f1f7, #d9e9f2); color: #113653; padding: 6px 9px; font: 700 11px Tahoma, Arial, sans-serif; cursor: pointer; }
+.qp-auto-classic .qp-reference-comparisons table,
+.qp-auto-classic .qp-auto-checks table { font: 11px/1.35 Tahoma, Arial, sans-serif; }
+.qp-auto-classic .qp-reference-comparisons td,
+.qp-auto-classic .qp-reference-comparisons th,
+.qp-auto-classic .qp-auto-checks td,
+.qp-auto-classic .qp-auto-checks th { padding: 4px 7px; font-family: Tahoma, Arial, sans-serif; font-size: 11px; vertical-align: top; }
+.qp-approval-dialog { padding: 0; width: min(960px, 92vw); max-height: 90vh; border: 1px solid #afc1d0; border-radius: 6px; background: #f3f7fa; color: #17364d; box-shadow: 0 10px 40px #17364d55; }
+.qp-approval-dialog::backdrop { background: #17364d66; }
+.qp-release-mode .qp-approval-dialog .qp-process11-layout { padding: 0 !important; }
+.qp-release-mode .qp-approval-dialog .qp-process11-window { width: 100%; margin: 0; }
+.qp-release-mode .qp-approval-dialog .qp-process11-paper-wrap { max-height: calc(90vh - 120px) !important; overflow: auto; }
+.qp-log-sign-confirm { width: min(460px, 90vw); padding: 16px; border: 1px solid #afc1d0; border-radius: 6px; background: #f3f7fa; color: #17364d; font: 12px/1.5 Tahoma, Arial, sans-serif; box-shadow: 0 10px 40px #17364d55; }
+.qp-log-sign-confirm::backdrop { background: #17364d66; }
+.qp-log-sign-confirm h3 { margin: 0 0 12px; font-size: 14px; }
+.qp-log-sign-confirm .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+#print-preview-body .release-log-modal-shell > .preview-toolbar:has(> .classic-button[data-close-print-preview]) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+#print-preview-body .release-log-modal-shell > .preview-toolbar > .classic-button[data-close-print-preview] {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 62px !important;
+  min-height: 26px !important;
+  padding: 4px 12px !important;
+  justify-self: end;
+}
+@media screen {
+  #print-preview-modal:has(.qp-release-log-paper) .print-preview-window {
+    width: min(1306px, 96vw) !important;
+    box-sizing: border-box;
+  }
+  #print-preview-modal:has(.qp-release-log-paper) .release-log-modal-shell {
+    width: 100% !important;
+    min-width: 0;
+  }
+  #print-preview-modal:has(.qp-release-log-paper) .print-preview-window,
+  #print-preview-modal:has(.qp-release-log-paper) .print-preview-body,
+  #print-preview-modal:has(.qp-release-log-paper) .release-log-modal-shell,
+  #print-preview-modal:has(.qp-release-log-paper) .qp-release-log-editor {
+    height: auto !important;
+    min-height: 0 !important;
+    align-content: start;
+  }
+  #print-preview-modal .release-log-modal-shell .qp-release-log-paper {
+    min-height: 0 !important;
+    height: auto !important;
+  }
+}
+@media print {
+  .release-log-modal-shell .qp-release-log-paper,
+  .qp-release-log-editor .qp-release-log-paper { min-height: 650px !important; }
+}
+.qp-release-log-paper .qp-paper-signoff { gap: 16px; margin-top: 44px; }
+.qp-release-log-paper .qp-paper-signoff label { min-height: 32px; font: 11px/1.4 Tahoma, Arial, sans-serif; color: #28352f; }
+.qp-release-log-paper .qp-paper-signoff label strong { padding: 6px 8px; }
+.qp-release-log-paper .qp-paper-signoff label > .qp-paper-signoff-value {
+  display: flex;
+  align-items: center;
+  min-height: 30px !important;
+  padding: 6px 8px !important;
+  background: transparent !important;
+  color: inherit;
+  font: inherit;
+}
 .batch-record-print-content { background: white; padding: 12px; }
 .batch-record-document { margin-bottom: 24px; }
 @media print {
@@ -26868,4 +27515,262 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
   .batch-record-document { break-before: page; }
   .batch-record-document:first-child { break-before: auto; }
   .batch-record-print-content .qp-source-sheet { width: 100%; max-width: 100%; break-after: page; }
+}
+
+/* Assembly IPC timed photo checklist */
+.assembly-modern .assembly-ipc-timing-key {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.assembly-modern .assembly-ipc-timing-key span {
+  background: #edf5fa;
+  border: 1px solid #bfd2df;
+  border-radius: 4px;
+  color: #173b58;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 9px;
+}
+
+.assembly-modern .assembly-ipc-checks-table {
+  min-width: 980px;
+  table-layout: fixed;
+}
+
+.assembly-modern .assembly-ipc-checks-table th:nth-child(1),
+.assembly-modern .assembly-ipc-checks-table td:nth-child(1) { text-align: center; width: 4%; }
+.assembly-modern .assembly-ipc-checks-table th:nth-child(2),
+.assembly-modern .assembly-ipc-checks-table td:nth-child(2) { width: 10%; }
+.assembly-modern .assembly-ipc-checks-table th:nth-child(3),
+.assembly-modern .assembly-ipc-checks-table td:nth-child(3) { width: 22%; }
+.assembly-modern .assembly-ipc-checks-table th:nth-child(4),
+.assembly-modern .assembly-ipc-checks-table td:nth-child(4) { width: 12%; }
+.assembly-modern .assembly-ipc-checks-table th:nth-child(5),
+.assembly-modern .assembly-ipc-checks-table td:nth-child(5) { width: 13%; }
+.assembly-modern .assembly-ipc-checks-table th:nth-child(6),
+.assembly-modern .assembly-ipc-checks-table td:nth-child(6) { width: 22%; }
+.assembly-modern .assembly-ipc-checks-table th:nth-child(7),
+.assembly-modern .assembly-ipc-checks-table td:nth-child(7) { text-align: center; width: 17%; }
+
+.assembly-modern .assembly-ipc-checks-table td small {
+  color: #607487;
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.assembly-modern .assembly-ipc-check-row.is-due td {
+  background: #fff8e8;
+}
+
+.assembly-modern .assembly-ipc-check-row.is-confirmed td {
+  background: #f1fbf6;
+}
+
+.assembly-modern .assembly-ipc-result {
+  border-radius: 4px;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 82px;
+  padding: 5px 8px;
+  text-align: center;
+}
+
+.assembly-modern .assembly-ipc-result.is-due {
+  background: #fff0d6;
+  border: 1px solid #e6a94a;
+  color: #9a5700;
+}
+
+.assembly-modern .assembly-ipc-result.is-upcoming {
+  background: #edf2f6;
+  border: 1px solid #c7d2dc;
+  color: #526575;
+}
+
+.assembly-modern .assembly-ipc-result.is-confirmed {
+  background: #dcf5e8;
+  border: 1px solid #54ad7c;
+  color: #16643a;
+}
+
+.assembly-modern .assembly-ipc-photo-attached {
+  color: #16643a;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.assembly-modern .assembly-ipc-upcoming-button {
+  min-width: 92px;
+}
+
+.assembly-modern .assembly-ipc-event-list {
+  display: grid;
+  gap: 14px;
+}
+
+.assembly-modern .assembly-ipc-event-card {
+  border: 1px solid #b8cbd9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.assembly-modern .assembly-ipc-event-card.is-due,
+.assembly-modern .assembly-ipc-event-card.is-progress {
+  border-color: #dda446;
+}
+
+.assembly-modern .assembly-ipc-event-card.is-confirmed {
+  border-color: #4da675;
+}
+
+.assembly-modern .assembly-ipc-event-header {
+  align-items: center;
+  background: #dcebf4;
+  display: flex;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 7px 11px;
+}
+
+.assembly-modern .assembly-ipc-event-card.is-due .assembly-ipc-event-header,
+.assembly-modern .assembly-ipc-event-card.is-progress .assembly-ipc-event-header {
+  background: #fff5df;
+}
+
+.assembly-modern .assembly-ipc-event-card.is-confirmed .assembly-ipc-event-header {
+  background: #e6f6ee;
+}
+
+.assembly-modern .assembly-ipc-event-header > div {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+}
+
+.assembly-modern .assembly-ipc-event-header strong {
+  color: #082f50;
+  font-size: 15px;
+}
+
+.assembly-modern .assembly-ipc-event-header span {
+  color: #475f72;
+  font-size: 12px;
+}
+
+.assembly-modern .assembly-ipc-result.is-progress {
+  background: #fff0d6;
+  border: 1px solid #e6a94a;
+  color: #80500a;
+}
+
+.assembly-modern .assembly-ipc-bar-checklist {
+  display: grid;
+}
+
+.assembly-modern .assembly-ipc-checklist-heading,
+.assembly-modern .assembly-ipc-checklist-row {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(280px, 1.3fr) minmax(250px, 1fr) 150px;
+}
+
+.assembly-modern .assembly-ipc-checklist-heading {
+  background: #edf4f8;
+  border-bottom: 1px solid #bfd0dc;
+  color: #143b5c;
+  font-size: 12px;
+  min-height: 34px;
+}
+
+.assembly-modern .assembly-ipc-checklist-heading > *,
+.assembly-modern .assembly-ipc-checklist-row > * {
+  padding: 7px 10px;
+}
+
+.assembly-modern .assembly-ipc-checklist-heading > :last-child,
+.assembly-modern .assembly-ipc-checklist-row > :last-child {
+  justify-self: center;
+  text-align: center;
+}
+
+.assembly-modern .assembly-ipc-checklist-row {
+  border-bottom: 1px solid #d6e1e8;
+  cursor: pointer;
+  font-size: 13px;
+  min-height: 38px;
+}
+
+.assembly-modern .assembly-ipc-checklist-row:nth-child(odd) {
+  background: #f8fbfd;
+}
+
+.assembly-modern .assembly-ipc-checklist-row:hover {
+  background: #eef7fc;
+}
+
+.assembly-modern .assembly-ipc-checklist-row.is-checked {
+  background: #edf9f3;
+}
+
+.assembly-modern .assembly-ipc-checklist-row strong {
+  color: #102f49;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.assembly-modern .assembly-ipc-checklist-row input {
+  height: 19px;
+  margin: 0;
+  width: 19px;
+}
+
+.assembly-modern .assembly-ipc-event-footer {
+  align-items: stretch;
+  background: #f5f8fa;
+  display: grid;
+  grid-template-columns: minmax(320px, 1.4fr) minmax(160px, .7fr) minmax(220px, .9fr);
+}
+
+.assembly-modern .assembly-ipc-event-footer > div {
+  align-items: center;
+  border-right: 1px solid #cbd9e2;
+  display: flex;
+  gap: 10px;
+  min-height: 48px;
+  padding: 7px 10px;
+}
+
+.assembly-modern .assembly-ipc-event-footer > div:last-child {
+  border-right: 0;
+}
+
+.assembly-modern .assembly-ipc-event-footer span:first-child {
+  color: #465f72;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 980px) {
+  .assembly-modern .assembly-ipc-checklist-heading,
+  .assembly-modern .assembly-ipc-checklist-row {
+    grid-template-columns: minmax(220px, 1.2fr) minmax(190px, 1fr) 120px;
+  }
+
+  .assembly-modern .assembly-ipc-event-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .assembly-modern .assembly-ipc-event-footer > div {
+    border-bottom: 1px solid #cbd9e2;
+    border-right: 0;
+  }
 }

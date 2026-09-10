@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="styles.css?v=20260904-grc-lead-po-merge">
+  <link rel="stylesheet" href="styles.css?v=20260910-batchchecker-layout-rollback">
   </head>
   <body class="pre-login">
     <div class="plpi-app">
@@ -44,7 +44,7 @@
           <span class="toolbar-icon ppm-audit-history"></span>
           <span>PPM Audit History</span>
         </button>
-        <button class="toolbar-item" type="button" data-login-stage="regulatory-task">
+        <button class="toolbar-item" type="button" aria-disabled="true">
           <span class="toolbar-icon regulatory-task"></span>
           <span>Regulatory Task</span>
         </button>
@@ -60,7 +60,7 @@
           <span class="toolbar-icon regulatory-log"></span>
           <span>Regulatory Log</span>
         </button>
-        <button class="toolbar-item" type="button" data-login-stage="bar-creation">
+        <button class="toolbar-item" type="button" aria-disabled="true">
           <span class="toolbar-icon product-add"></span>
           <span>Product Add</span>
         </button>
@@ -409,7 +409,8 @@
           </section>
         </section>
 
-        <aside class="right-launcher" aria-label="PLPI module launcher">
+        <aside id="module-launcher" class="right-launcher" aria-label="PLPI module launcher">
+          <button class="classic-button module-launcher-toggle" type="button" data-toggle-module-launcher aria-expanded="true" aria-controls="module-launcher" aria-label="Collapse modules" title="Collapse modules">&#8250;</button>
           <button class="launcher-item" type="button">
             <span class="launcher-icon users"></span>
             <span>Users</span>
@@ -723,7 +724,7 @@
       </div>
     </div>
 
-    <script src="app.js?v=20260904-grc-lead-po-merge"></script>
+    <script src="app.js?v=20260909-bar-ipc-checklist"></script>
   </body>
 </html>
 

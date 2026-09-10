@@ -102,26 +102,6 @@ const stages = [
     progress: [40, 25]
   },
   {
-    id: "regulatory-task",
-    code: "Stage 4",
-    title: "Regulatory Task",
-    loginTitle: "Regulatory Task Login",
-    user: "reg.user",
-    role: "Regulatory User",
-    owner: "Regulatory",
-    status: "active",
-    entry: "BAR issued",
-    next: "Under Construction",
-    approval: "Regulatory approval",
-    checks: [
-      "Perform regulatory checks.",
-      "Placeholder dummy stage."
-    ],
-    evidence: [],
-    controls: [],
-    progress: [0, 0]
-  },
-  {
     id: "bar-creation",
     code: "Stage 4",
     title: "BAR Creation",
@@ -557,6 +537,8 @@ let assemblyExtraIpcRows = 0;
 let assemblyActiveTab = "materials";
 let assemblyQueueView = "active";
 let assemblyAttendanceLiveRows = [];
+const ASSEMBLY_IPC_FIRST_CHECK_MINUTES = 20;
+const ASSEMBLY_IPC_REPEAT_CHECK_MINUTES = 40;
 let postAssemblySelectedProduct = null;
 let postAssemblyCheckedBatchNumbers = [];
 let postAssemblyRecords = {};
@@ -977,9 +959,9 @@ function renderStageStrip() {
     { label: "PPM Audit", icon: "AUD", inactive: true },
     { label: "PPM Locations", icon: "?", inactive: true },
     { label: "PPM Audit History", icon: "?", inactive: true },
-    { label: "Regulatory Task", icon: "?", stageId: "regulatory-task" },
+    { label: "Regulatory Task", icon: "?", inactive: true },
     { label: "Regulatory Log", icon: "LOG", inactive: true },
-    { label: "Product Add", icon: "+", stageId: "bar-creation" },
+    { label: "Product Add", icon: "+", inactive: true },
     { label: "Product", icon: "?", inactive: true },
     { label: "Packing List", icon: "?", stageId: "packing-list" },
     { label: "RPi Pack Creation", icon: "RPi", stageId: "rp-pack", rpiEntry: "pack-creation" },
@@ -1142,13 +1124,14 @@ function requestUserSignoff(action, stageName = "this stage") {
 }
 
 function closeAppConfirm() {
+  const dismissedIpcReminder = document.querySelector("#app-confirm-title")?.textContent === "IPC Photo & In Process Check Due";
   pendingSignoffAction = null;
   releaseLogPasswordBatches = [];
   document.body.classList.remove("generated-po-signoff-active");
   appConfirmModal.classList.remove("generated-po-signoff-confirm");
   appConfirmModal.classList.add("hidden");
   resetAssemblyIdScanPrompt();
-  statusMessage.textContent = "User sign off cancelled";
+  statusMessage.textContent = dismissedIpcReminder ? "IPC photo reminder dismissed." : "User sign off cancelled";
 }
 
 function requestAppConfirmation(action, title, header, copy, yesText) {
@@ -5304,7 +5287,6 @@ function renderPackingRpDocuments(stage) {
         <div class="rp-tile-header">
           <svg class="rp-document-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
           <div class="rp-tile-title">${required.name}${isShared ? " · Shared" : ""}</div>
-          <div class="rp-tile-subtitle">${label}</div>
         </div>
         <div class="rp-tile-file-name">${uploaded ? (doc.fileName || "Uploaded file") : "No file uploaded"}</div>
         <div class="rp-tile-status"><span class="rp-tile-badge ${uploaded ? "verified" : (isOptional ? "pending" : "missing")}">${uploaded ? "Uploaded" : (isOptional ? "Optional" : "Upload required")}</span></div>
@@ -5325,7 +5307,7 @@ function renderPackingRpDocuments(stage) {
         <div class="rp-doc-tiles-grid" style="--rp-status-columns: ${Math.max(rowEntries.length, 1)}">${rowEntries.map((entry) => entry.html).join("") || `<div class="rp-document-row-empty ${isComplete ? "complete" : ""}">${emptyText}</div>`}</div>
       </div>
     `;
-    return `${renderRow("uploaded-files-row", "Uploaded files", `${uploadedEntries.length} required files available`, uploadedEntries, "No required files uploaded yet")}${remainingEntries.length ? renderRow("remaining-files-row", "Remaining required files", `${remainingEntries.length} outstanding`, remainingEntries, "", false) : ""}${optionalEntries.length ? renderRow("optional-files-row", "Optional files", "Not required for sign-off", optionalEntries, "", true) : ""}`;
+    return `${renderRow("uploaded-files-row", "Available files", `${uploadedEntries.length} files available`, uploadedEntries, "No files available yet")}${remainingEntries.length ? renderRow("remaining-files-row", "Remaining required files", `${remainingEntries.length} outstanding`, remainingEntries, "", false) : ""}${optionalEntries.length ? renderRow("optional-files-row", "Optional files", "Not required for sign-off", optionalEntries, "", true) : ""}`;
   };
 
   const sharedTileEntries = sharedRequiredDocs.map((required) => renderUploadTile(primaryWorkflow, required, `${poNos.length} POs · shared file`, true));
@@ -5337,15 +5319,13 @@ function renderPackingRpDocuments(stage) {
     const workflow = rpPackWorkflows[poNo];
     return [poNo, optionalDocs.map((optional) => renderUploadTile(workflow, optional, poNo, false, true))];
   }));
-  const individualTilesHtml = poNos.map((poNo) => renderDocumentStatusRows(individualTileEntriesByPo[poNo], optionalTileEntriesByPo[poNo])).join("");
   const packingListTilesByPo = Object.fromEntries(poNos.map((poNo) => {
     const tileHtml = `
-      <div class="rp-doc-tile rp-packing-list-tile">
+      <div class="rp-doc-tile rp-generated-packing-document">
         <span class="rp-tile-index">PL</span>
         <div class="rp-tile-header">
           <svg class="rp-document-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
           <div class="rp-tile-title">Generated PO Packing List</div>
-          <div class="rp-tile-subtitle">${poNo} · Separate packing list</div>
         </div>
         <div class="rp-tile-file-name">Generated by PLPI</div>
         <div class="rp-tile-status"><span class="rp-tile-badge verified">Available</span></div>
@@ -5354,10 +5334,14 @@ function renderPackingRpDocuments(stage) {
     `;
     return [poNo, tileHtml];
   }));
-  const packingListTilesHtml = poNos.map((poNo) => packingListTilesByPo[poNo]).join("");
+  const renderPoFiles = poNo => renderDocumentStatusRows(
+    [...individualTileEntriesByPo[poNo], { uploaded: true, html: packingListTilesByPo[poNo] }],
+    optionalTileEntriesByPo[poNo]
+  );
+  const individualTilesHtml = poNos.map(renderPoFiles).join("");
   const mergedPoSectionsHtml = mergeGroup ? `
     <div class="rp-document-section rp-common-files-section"><h4>Common files</h4>${renderDocumentStatusRows(sharedTileEntries)}</div>
-    ${poNos.map((poNo) => `<div class="rp-document-section"><h4>PO ${poNo}</h4>${renderDocumentStatusRows(individualTileEntriesByPo[poNo], optionalTileEntriesByPo[poNo])}<div class="rp-po-packing-list-row">${packingListTilesByPo[poNo]}</div></div>`).join("")}
+    ${poNos.map((poNo) => `<div class="rp-document-section"><h4>PO ${poNo}</h4>${renderPoFiles(poNo)}</div>`).join("")}
   ` : "";
 
   const sharedUploaded = sharedRequiredDocs.every((required) => primaryWorkflow.documents.find((doc) => doc.id === required.id)?.uploaded);
@@ -5379,10 +5363,10 @@ function renderPackingRpDocuments(stage) {
         <label class="rp-pack-route-option ${diagnosticBatch ? "selected" : ""}"><input type="checkbox" data-rp-diagnostic-batch ${diagnosticBatch ? "checked" : ""} ${routeCompleted ? "disabled" : ""}><span><strong>Diagnostic batch</strong><small>Supplier Declaration is not required for this RPi approval.</small></span></label>
       </div>
       ${mergeGroup ? `<div class="rp-merged-set-manager"><div><strong>Manage merged PO set</strong><span>Select one PO and record why it is being removed. The other POs will remain grouped.</span></div><label><span>PO to remove</span><select class="classic-search-input" data-rp-unmerge-po-select><option value="">Select PO</option>${poNos.map((poNo) => `<option value="${poNo}">${poNo}</option>`).join("")}</select></label><label class="rp-unmerge-reason-field"><span>Reason for unmerge</span><input class="classic-search-input" data-rp-unmerge-reason placeholder="Enter reason" maxlength="180"></label><button class="classic-button" type="button" data-rp-unmerge-selected>Unmerge selected PO</button></div>` : ""}
-      ${mergeGroup ? mergedPoSectionsHtml : `<div class="rp-document-section"><h4>PO documents</h4>${individualTilesHtml}</div><div class="rp-document-section rp-packing-list-section"><h4>PLPI Packing List</h4><div class="rp-doc-tiles-grid">${packingListTilesHtml}</div></div>`}
+      ${mergeGroup ? mergedPoSectionsHtml : `<div class="rp-document-section"><h4>PO documents</h4>${individualTilesHtml}</div>`}
       <div class="signature-grid rp-doc-signoff-row">
-        <label>Goods-In Operator <input value="${currentLogin ? currentLogin.user : stage.user}" readonly></label>
-        <label>Date / Time <input value="${signoff ? signoff.dateTime : "Pending required uploads"}" readonly></label>
+        <label>Goods-In Operator <input value="${escapeQaChecklistText(signoff?.user || "")}" readonly></label>
+        <label>Date / Time <input value="${escapeQaChecklistText(signoff?.dateTime || "")}" readonly></label>
         <div class="signoff-action process-signoff-action"><button class="classic-button primary" type="button" id="rp-documents-signoff-button" ${readyToSend ? "" : "disabled"}>${noRpiApprovalNeeded ? "Send to Stock Control" : "Send to RPi Approval"}</button></div>
       </div>
     </div>
@@ -5548,8 +5532,7 @@ function renderGoodsInSummaryWork() {
     `).join("");
     return `
       <div class="goods-summary-page">
-        <header class="goods-summary-header"><div><h2>Goods-in Summary</h2><p>Review the recorded Goods-In and RPi actions for each PO.</p></div><span>${records.length} PO queue${records.length === 1 ? "" : "s"}</span></header>
-        <div class="goods-summary-search"><label for="goods-summary-search">PO Number</label><input class="classic-search-input" id="goods-summary-search" data-goods-summary-search value="${escapeQaChecklistText(goodsInSummarySearch)}" placeholder="Enter PO number"><button class="classic-search-button" type="button" data-goods-summary-search-button>Search</button><button class="classic-button" type="button" data-goods-summary-clear>Clear</button></div>
+        <div class="goods-summary-search"><label for="goods-summary-search">PO Number</label><input class="classic-search-input" id="goods-summary-search" data-goods-summary-search value="${escapeQaChecklistText(goodsInSummarySearch)}" placeholder="Enter PO number"><button class="classic-search-button" type="button" data-goods-summary-search-button>Search</button><button class="classic-button" type="button" data-goods-summary-clear>Clear</button><span class="goods-summary-queue-count">${records.length} PO queue${records.length === 1 ? "" : "s"}</span></div>
         <div class="goods-summary-list-shell">
           <table class="classic-table goods-summary-list"><thead><tr><th>PO Number(s)</th><th>Supplier</th><th>Current stage</th><th>Last updated</th><th>Action</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="goods-summary-empty">No PO summary matches the search.</td></tr>`}</tbody></table>
         </div>
@@ -6252,7 +6235,7 @@ function renderBatchCheckerWork(stage) {
       <div class="batchchecker-live-layout">
         <div class="batchchecker-live-header">
           <div>
-            <h3>Batch Checker - RPi Approved PO List</h3>
+            <h3 class="batchchecker-po-heading">Batch Checker - RPi Approved PO List</h3>
             
           </div>
         </div>
@@ -7522,10 +7505,6 @@ function renderRpPackWork(stage) {
     `;
     return `
       <div class="packing-list-panel rp-task-card-page">
-        <div class="rp-task-card-page-header">
-          <div><h3>RPi Approval</h3><p>Select a PO for document review or open a Goods Receiving exception.</p></div>
-          <span>${totalActiveTasks} active</span>
-        </div>
         <div class="rp-task-queue-tabs" role="tablist" aria-label="RPi task queues">
           <button class="${rpTaskQueueTab === "po" ? "active" : ""}" type="button" role="tab" aria-selected="${rpTaskQueueTab === "po"}" data-rp-task-queue-tab="po">PO Work Queue <span>${completedPoKeys.length}</span></button>
           <button class="${rpTaskQueueTab === "qa" ? "active" : ""}" type="button" role="tab" aria-selected="${rpTaskQueueTab === "qa"}" data-rp-task-queue-tab="qa">QA Decision <span>${waitingQaItems.length}</span></button>
@@ -7622,14 +7601,14 @@ function renderRpPackWork(stage) {
     let plStatusText = packingListGenerated ? (isPackingListRejected ? "Rejected" : (isPackingListVerified ? "Approved" : "Pending Decision")) : "Not Generated";
 
     const packingListTileHtml = `
-      <div class="rp-doc-tile" style="background-color: #fffbeb; border-color: #fcd34d;">
+      <div class="rp-doc-tile">
         <span class="rp-tile-index">08</span>
         <div class="rp-tile-header">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #b45309; margin-bottom: 4px; display: block;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #1e3a8a; margin-bottom: 4px; display: block;">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
           </svg>
-          <div class="rp-tile-title" style="color: #92400e;">Generated PO Packing List</div>
+          <div class="rp-tile-title">Generated PO Packing List</div>
           <div class="rp-tile-subtitle">Generated by PLPI</div>
         </div>
         <div class="rp-tile-status rp-task-decision-row">
@@ -7652,9 +7631,9 @@ function renderRpPackWork(stage) {
       const isViewed = memberWorkflow && getRpTaskViewedDocs(memberWorkflow)["generated-packing-list"] === true;
       const isRejected = memberWorkflow && getRpTaskViewedDocs(memberWorkflow)["generated-packing-list"] === "rejected";
       const tileHtml = `
-        <div class="rp-doc-tile" style="background-color: #fffbeb; border-color: #fcd34d;">
+        <div class="rp-doc-tile">
           <span class="rp-tile-index">PL</span>
-          <div class="rp-tile-header"><div class="rp-tile-title" style="color:#92400e;">Generated PO Packing List</div><div class="rp-tile-subtitle">${memberPoNo} · Separate packing list</div></div>
+          <div class="rp-tile-header"><div class="rp-tile-title">Generated PO Packing List</div><div class="rp-tile-subtitle">${memberPoNo} · Separate packing list</div></div>
           <div class="rp-tile-status rp-task-decision-row"><span class="rp-tile-badge ${isRejected ? "rejected-status" : (isViewed ? "verified" : "pending")}">${isRejected ? "Rejected" : (isViewed ? "Approved" : "Pending Decision")}</span><button class="classic-button link-button rp-task-view-file" type="button" data-pl-preview-generated-packing-list data-pl-preview-po="${memberPoNo}">View File</button></div>
           <div class="rp-tile-action rp-task-document-actions"><button class="classic-button primary" type="button" data-rp-approve-generated-packing-list="${memberPoNo}" ${isViewed ? "disabled" : ""}>${isViewed ? "Approved" : "Approve"}</button><button class="classic-button danger" type="button" data-rp-reject-generated-packing-list="${memberPoNo}" ${isRejected ? "disabled" : ""}>${isRejected ? "Rejected" : "Reject"}</button></div>
         </div>
@@ -7679,15 +7658,17 @@ function renderRpPackWork(stage) {
     const anyRpDocumentRejected = hasAnyRpDocumentRejected(activePo.poNo);
     const checklistApprovedToOpen = activePo.rpChecklistOpen === true;
 
+    let checklistPopupHtml = "";
     if (checklistApprovedToOpen) {
-      mainContentHtml = `
+      checklistPopupHtml = `
+        <dialog id="rp-checklist-dialog" aria-label="RPi Approval Checklist">
         <div class="rp-documents-main rp-checklist-full-window" style="display: flex; flex-direction: column; gap: 12px; font-family: Tahoma, sans-serif; min-height: 650px;">
           <div class="rp-documents-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">
             <div>
               <h3 style="margin: 0; color: #1f3a5f; font-size: 20px; font-weight: bold;">RPi Approval Checklist - PO ${activePoLabel}</h3>
               <p style="margin: 2px 0 0; font-size: 12px; color: #666;">${activeMergeGroup ? `Shared files were reviewed once; ${activePoNos.length} separate packing lists and PO files were reviewed individually.` : "All required documents have been viewed by RPi."} Complete the checklist and generate the signed form.</p>
             </div>
-            <div class="rp-task-header-actions"><button class="classic-button" type="button" data-rp-task-back>Back to task queue</button><span class="viewed-badge ${isApprovedByRp ? "viewed" : "pending"}">${isApprovedByRp ? "Approved" : "Pending RPi Sign-Off"}</span></div>
+            <div class="rp-task-header-actions"><button class="classic-button" type="button" data-rp-checklist-close>Close</button><span class="viewed-badge ${isApprovedByRp ? "viewed" : "pending"}">${isApprovedByRp ? "Approved" : "Pending RPi Sign-Off"}</span></div>
           </div>
           <div class="rp-task-checklist-scroll-panel" style="flex: 1; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 6px; background: #ffffff; padding: 8px; min-height: 540px;">
             ${checksHtml}
@@ -7700,10 +7681,13 @@ function renderRpPackWork(stage) {
             </div>
           </div>
         </div>
+        </dialog>
       `;
-    } else {
+    }
+    {
       mainContentHtml = `
-        <div class="rp-documents-main" style="display: flex; flex-direction: column; gap: 12px; font-family: Tahoma, sans-serif;">
+        ${checklistPopupHtml}
+        <div class="rp-documents-main rp-review-card-screen" style="display: flex; flex-direction: column; gap: 12px; font-family: Tahoma, sans-serif;">
           <div class="rp-documents-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">
             <div>
               <h3 style="margin: 0; color: #1f3a5f; font-size: 18px; font-weight: bold;">RPi Review Dashboard - PO ${activePoLabel}</h3>
@@ -8702,6 +8686,119 @@ function getAssemblyClockTime() {
   return new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+function getAssemblyIpcTargetMinutes(index) {
+  return ASSEMBLY_IPC_FIRST_CHECK_MINUTES + (index * ASSEMBLY_IPC_REPEAT_CHECK_MINUTES);
+}
+
+function formatAssemblyIpcTarget(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function getAssemblyActiveElapsedMs(record, nowMs = Date.now()) {
+  const runtime = record && record.runtime ? record.runtime : {};
+  const startRecord = getAssemblyLifecycleRecord(record || {}, "start");
+  const parsedStart = Date.parse(startRecord.dateTime || "");
+  const startedAtMs = Number(runtime.startedAtMs || (Number.isFinite(parsedStart) ? parsedStart : 0));
+  if (!startedAtMs) return 0;
+  const endMs = runtime.status === "completed" && runtime.completedAtMs ? Number(runtime.completedAtMs) : nowMs;
+  const currentPauseMs = runtime.timerPaused && runtime.pauseStartedAtMs
+    ? Math.max(0, endMs - Number(runtime.pauseStartedAtMs))
+    : 0;
+  return Math.max(0, endMs - startedAtMs - Number(runtime.pausedDurationMs || 0) - currentPauseMs);
+}
+
+function getAssemblyIpcDueCount(record, nowMs = Date.now()) {
+  const elapsedMinutes = getAssemblyActiveElapsedMs(record, nowMs) / 60000;
+  if (elapsedMinutes < ASSEMBLY_IPC_FIRST_CHECK_MINUTES) return 0;
+  return 1 + Math.floor((elapsedMinutes - ASSEMBLY_IPC_FIRST_CHECK_MINUTES) / ASSEMBLY_IPC_REPEAT_CHECK_MINUTES);
+}
+
+function getAssemblyIpcChecks(record) {
+  const checks = Array.isArray(record && record.ipcChecks) ? record.ipcChecks.map((check) => ({ ...check })) : [];
+  if (!checks.length && record && record.ipcPhotoName) {
+    checks.push({
+      targetMinutes: ASSEMBLY_IPC_FIRST_CHECK_MINUTES,
+      photoName: record.ipcPhotoName,
+      checkedBy: record.signedTabs && record.signedTabs.ipc ? record.signedTabs.ipc.user : record.user || "assembly.room",
+      checkedAt: record.signedTabs && record.signedTabs.ipc ? record.signedTabs.ipc.dateTime : record.dateTime || ""
+    });
+  }
+  return checks;
+}
+
+function getAssemblyIpcBarChecklist(product) {
+  return [
+    { label: "Product Name", value: product.product || product.description || "-" },
+    { label: "Strength", value: product.strength || "-" },
+    { label: "Pack Size", value: product.packSize || "-" },
+    { label: "Units per pack", value: product.unitsPerPack || "1" },
+    { label: "Mfg. Lot No.", value: product.manufLotNo || product.manufacturingLot || "-" },
+    { label: "B&S Batch No.", value: product.batch || "-" },
+    { label: "Expiry Date", value: product.expiry || "-" },
+    { label: "PL No.", value: product.pl || "-" },
+    { label: "Placement of labels applied is verified against the specimen pack", value: "Verify against specimen pack" }
+  ];
+}
+
+function showAssemblyIpcDueAlert(product, checkIndex) {
+  requestAppConfirmation(
+    () => {
+      assemblySelectedProduct = product;
+      assemblyActiveTab = "ipc";
+      renderStage("assembly-room");
+      updateAssemblyAvailability();
+    },
+    "IPC Photo & In Process Check Due",
+    `IPC ${checkIndex + 1} is due`,
+    `Batch ${product.batch} has reached ${formatAssemblyIpcTarget(getAssemblyIpcTargetMinutes(checkIndex))} of active assembly time. Complete the BAR in-process checklist and take the required IPC picture.`,
+    "Open IPC Check"
+  );
+  const copy = document.querySelector("#app-confirm-copy");
+  if (copy) copy.style.display = "block";
+  const dismissButton = appConfirmModal.querySelector(".confirm-actions [data-app-confirm-no]");
+  if (dismissButton) dismissButton.textContent = "Dismiss";
+}
+
+function checkAssemblyIpcAlerts() {
+  if (currentStageId !== "assembly-room") return;
+  if (appConfirmModal && !appConfirmModal.classList.contains("hidden")) return;
+  const activeProducts = [
+    ...(assemblySelectedProduct ? [assemblySelectedProduct] : []),
+    ...bnsProducts.filter((product) => product !== assemblySelectedProduct && productionAllocatedBatchNumbers.includes(product.batch))
+  ];
+  const product = activeProducts.find((item) => {
+    const itemRecord = assemblyRecords[item.batch] || {};
+    const itemRuntime = itemRecord.runtime || {};
+    if (itemRuntime.status !== "running" || assembledBatchNumbers.includes(item.batch)) return false;
+    const dueCount = getAssemblyIpcDueCount(itemRecord);
+    const checks = getAssemblyIpcChecks(itemRecord);
+    const alertedChecks = Array.isArray(itemRecord.ipcAlertedChecks) ? itemRecord.ipcAlertedChecks : [];
+    return Array.from({ length: dueCount }).some(
+      (_, index) => !(checks[index] && checks[index].photoName) && !alertedChecks.includes(index)
+    );
+  });
+  if (!product) return;
+  const batchNumber = product.batch;
+  const record = assemblyRecords[batchNumber] || {};
+  const runtime = record.runtime || {};
+  if (runtime.status !== "running" || assembledBatchNumbers.includes(batchNumber)) return;
+  const dueCount = getAssemblyIpcDueCount(record);
+  const checks = getAssemblyIpcChecks(record);
+  const alertedChecks = Array.isArray(record.ipcAlertedChecks) ? record.ipcAlertedChecks : [];
+  const dueIndex = Array.from({ length: dueCount }).findIndex(
+    (_, index) => !(checks[index] && checks[index].photoName) && !alertedChecks.includes(index)
+  );
+  if (dueIndex < 0) return;
+  const signedTabs = { ...(record.signedTabs || {}) };
+  delete signedTabs.ipc;
+  assemblyRecords[batchNumber] = { ...record, ipcAlertedChecks: [...alertedChecks, dueIndex], signedTabs };
+  if (assemblySelectedProduct && assemblySelectedProduct.batch === batchNumber && assemblyActiveTab === "ipc") renderStage("assembly-room");
+  showAssemblyIpcDueAlert(product, dueIndex);
+  statusMessage.textContent = `IPC photo check ${dueIndex + 1} is due for batch ${batchNumber}.`;
+}
+
 function getAssemblyCheckInRows() {
   const demoRows = [
     { user: "JACINTA FER", room: "Room 1", start: "08:32", end: "10:17" },
@@ -8866,7 +8963,7 @@ function renderAssemblyCompletedSummary(product, record, productionRecord) {
   const pages = [
     ["materials", "Page 1", "Initial Checks"],
     ["samples", "Page 2", "Random Sample Check"],
-    ["ipc", "Page 3", "IPC Photo Check"],
+    ["ipc", "Page 3", "IPC Photo & In Process Checks"],
     ["recon", "Page 4", "Reconciliation & Closure"]
   ];
   const pageRows = pages.map(([key, page, title]) => {
@@ -8980,7 +9077,7 @@ function renderAssemblyRoomWork(stage) {
   const assemblyPages = {
     materials: { number: 1, title: "Assembly Room - Initial Checks", shortTitle: "Initial Checks", description: "" },
     samples: { number: 2, title: "Random Sample Check", shortTitle: "Random Sample", description: "" },
-    ipc: { number: 3, title: "IPC Photo Check", shortTitle: "IPC Photo", description: "" },
+    ipc: { number: 3, title: "IPC Photo & In Process Checks", shortTitle: "IPC Checks", description: "" },
     recon: { number: 4, title: "Reconciliation & Closure", shortTitle: "Reconciliation", description: "" }
   };
   const activePage = assemblyPages[activeTab];
@@ -9026,6 +9123,52 @@ function renderAssemblyRoomWork(stage) {
         <td>${signedTabs.samples ? signedTabs.samples.user : "-"}</td>
         <td>${signedTabs.samples ? signedTabs.samples.dateTime : "-"}</td>
       </tr>
+    `;
+  }).join("");
+  const ipcChecks = getAssemblyIpcChecks(record);
+  const ipcBarChecklist = getAssemblyIpcBarChecklist(product);
+  const ipcDueCount = getAssemblyIpcDueCount(record);
+  const ipcDisplayCount = Math.max(1, ipcDueCount + (runtime.status === "running" ? 1 : 0), ipcChecks.length);
+  const ipcRows = Array.from({ length: ipcDisplayCount }).map((_, index) => {
+    const check = ipcChecks[index] || {};
+    const confirmations = Array.isArray(check.confirmations) ? check.confirmations : [];
+    const targetMinutes = getAssemblyIpcTargetMinutes(index);
+    const hasPhoto = Boolean(check.photoName);
+    const checklistComplete = ipcBarChecklist.every((_, itemIndex) => Boolean(confirmations[itemIndex]));
+    const isComplete = hasPhoto && checklistComplete;
+    const isDue = index < ipcDueCount;
+    const hasProgress = hasPhoto || confirmations.some(Boolean);
+    const resultClass = isComplete ? "is-confirmed" : isDue ? (hasProgress ? "is-progress" : "is-due") : "is-upcoming";
+    const resultText = isComplete ? "Completed" : isDue ? (hasProgress ? "In Progress" : "Due") : "Upcoming";
+    const photoAction = hasPhoto
+      ? `<span class="assembly-ipc-photo-attached">&#10003; ${htmlSafe(check.photoName)}</span>`
+      : isDue
+        ? `<label class="assembly-evidence-button"><input type="file" accept="image/*" capture="environment" data-assembly-ipc-evidence="${index}" ${tabDisabled("ipc")}><span>Take Picture</span></label>`
+        : `<button class="classic-button assembly-ipc-upcoming-button" type="button" disabled>Not Due</button>`;
+    return `
+      <article class="assembly-ipc-event-card ${resultClass}">
+        <header class="assembly-ipc-event-header">
+          <div><strong>IPC ${index + 1}</strong><span>Target active time ${formatAssemblyIpcTarget(targetMinutes)}</span></div>
+          <span class="assembly-ipc-result ${resultClass}">${resultText}</span>
+        </header>
+        ${isDue || hasProgress ? `
+          <div class="assembly-ipc-bar-checklist" role="group" aria-label="IPC ${index + 1} in-process checks">
+            <div class="assembly-ipc-checklist-heading"><strong>In Process Check</strong><strong>BAR Value</strong><strong>Checked &amp; Confirmed</strong></div>
+            ${ipcBarChecklist.map((item, itemIndex) => `
+              <label class="assembly-ipc-checklist-row ${confirmations[itemIndex] ? "is-checked" : ""}">
+                <span>${htmlSafe(item.label)}</span>
+                <strong>${htmlSafe(item.value)}</strong>
+                <input type="checkbox" data-assembly-ipc-check="${index}" data-assembly-ipc-item="${itemIndex}" ${confirmations[itemIndex] ? "checked" : ""} ${!isDue ? "disabled" : tabDisabled("ipc")}>
+              </label>
+            `).join("")}
+          </div>
+          <footer class="assembly-ipc-event-footer">
+            <div><span>Photo Evidence</span>${photoAction}</div>
+            <div><span>Confirmed By</span><strong>${check.confirmedBy ? htmlSafe(check.confirmedBy) : "-"}</strong></div>
+            <div><span>Confirmed At</span><strong>${check.confirmedAt ? htmlSafe(check.confirmedAt) : "-"}</strong></div>
+          </footer>
+        ` : ""}
+      </article>
     `;
   }).join("");
   const reconRows = renderAssemblyReconciliationRows(record, [qtyReceived, qtyUsed, damages, discrepancyQty], false, tabDisabled("recon"));
@@ -9135,22 +9278,13 @@ function renderAssemblyRoomWork(stage) {
           <fieldset class="assembly-lock-fieldset" ${tabDisabled("ipc")}>
             <section class="assembly-content-card">
               <div class="assembly-section-heading">
-                <div><h3>IPC Photo Check</h3><p>Take or upload one clear photo of the in-process product. No timer or additional result entry is required.</p></div>
+                <div><h3>In Process Checks</h3><p>Confirm the BAR product details and label placement, then capture the IPC picture.</p></div>
+                <div class="assembly-ipc-timing-key"><span>First check: 00:20</span><span>Interval: 00:40</span></div>
               </div>
-              <div class="assembly-ipc-photo-card ${signedTabs.ipc ? "is-complete" : ""}">
-                <div class="assembly-ipc-photo-icon">&#128247;</div>
-                <div class="assembly-ipc-photo-copy">
-                  <strong>${signedTabs.ipc ? "IPC photo captured" : "Capture IPC photo"}</strong>
-                  <span>${signedTabs.ipc ? `${record.ipcPhotoName || "Photo attached"} | ${signedTabs.ipc.user} | ${signedTabs.ipc.dateTime}` : "Use the camera or choose one image file."}</span>
-                </div>
-                <label class="assembly-evidence-button ${signedTabs.ipc ? "is-uploaded" : ""}">
-                  <input type="file" accept="image/*" capture="environment" data-assembly-ipc-evidence ${tabDisabled("ipc")}>
-                  <span>${signedTabs.ipc ? "Photo Attached" : "Take Picture"}</span>
-                </label>
-              </div>
+              <div class="assembly-ipc-event-list">${ipcRows}</div>
             </section>
           </fieldset>
-          ${tabSignoff("ipc", "IPC Photo Check")}
+          ${tabSignoff("ipc", "IPC Photo & In Process Checks")}
         </div>
 
         <div class="assembly-tab-panel ${activeTab === "recon" ? "active" : ""}" data-assembly-panel="recon">
@@ -9208,8 +9342,16 @@ function updateAssemblyAvailability() {
     const checks = [...document.querySelectorAll(`[data-assembly-tab-check="${tabName}"]`)];
     const checksComplete = checks.length === 0 || checks.every((check) => check.checked);
     const briefingComplete = tabName !== "materials" || Boolean(record.briefingConfirmation);
-    const ipcInput = document.querySelector("[data-assembly-ipc-evidence]");
-    const ipcComplete = tabName !== "ipc" || Boolean(record.ipcPhotoName || (ipcInput && ipcInput.files && ipcInput.files.length));
+    const ipcDueCount = getAssemblyIpcDueCount(record);
+    const ipcChecks = getAssemblyIpcChecks(record);
+    const ipcChecklistLength = getAssemblyIpcBarChecklist(assemblySelectedProduct).length;
+    const ipcComplete = tabName !== "ipc" || (
+      ipcDueCount > 0 && Array.from({ length: ipcDueCount }).every((_, index) => {
+        const ipcCheck = ipcChecks[index] || {};
+        const confirmations = Array.isArray(ipcCheck.confirmations) ? ipcCheck.confirmations : [];
+        return Boolean(ipcCheck.photoName) && Array.from({ length: ipcChecklistLength }).every((__, itemIndex) => Boolean(confirmations[itemIndex]));
+      })
+    );
     const reconComplete = tabName !== "recon" || Boolean(document.querySelector("#assembly-used-qty") && document.querySelector("#assembly-used-qty").value !== "");
     button.disabled = !(checksComplete && briefingComplete && ipcComplete && reconComplete);
   });
@@ -9221,6 +9363,7 @@ function recordAssemblyBatchRuntimeAction(action, scannedId) {
   const existingRecord = assemblyRecords[batchNumber] || {};
   const existingRuntime = existingRecord.runtime || { status: "running", history: [] };
   const now = getAssemblyAuditTimestamp();
+  const actionAtMs = Date.now();
   const history = [...(existingRuntime.history || [])];
   let nextRuntime = { ...existingRuntime };
 
@@ -9232,6 +9375,7 @@ function recordAssemblyBatchRuntimeAction(action, scannedId) {
       status: "break",
       timerPaused: true,
       breakStartedAt: now,
+      pauseStartedAtMs: actionAtMs,
       lastAction: "Break Started",
       lastActionBy: scannedId,
       lastActionAt: now,
@@ -9245,6 +9389,8 @@ function recordAssemblyBatchRuntimeAction(action, scannedId) {
       status: "running",
       timerPaused: false,
       breakStartedAt: "",
+      pausedDurationMs: Number(existingRuntime.pausedDurationMs || 0) + Math.max(0, actionAtMs - Number(existingRuntime.pauseStartedAtMs || actionAtMs)),
+      pauseStartedAtMs: 0,
       lastAction: "Batch Resumed",
       lastActionBy: scannedId,
       lastActionAt: now,
@@ -9263,6 +9409,7 @@ function recordAssemblyBatchRuntimeAction(action, scannedId) {
       ...existingRuntime,
       status: "partial",
       timerPaused: true,
+      pauseStartedAtMs: actionAtMs,
       partialQuantity: completedQuantity,
       remainingQuantity: Math.max(0, totalQuantity - completedQuantity),
       partialFinishedBy: scannedId,
@@ -9279,6 +9426,8 @@ function recordAssemblyBatchRuntimeAction(action, scannedId) {
       ...existingRuntime,
       status: "running",
       timerPaused: false,
+      pausedDurationMs: Number(existingRuntime.pausedDurationMs || 0) + Math.max(0, actionAtMs - Number(existingRuntime.pauseStartedAtMs || actionAtMs)),
+      pauseStartedAtMs: 0,
       resumedBy: scannedId,
       resumedAt: now,
       lastAction: "Partial Start",
@@ -9293,6 +9442,7 @@ function recordAssemblyBatchRuntimeAction(action, scannedId) {
     runtime: nextRuntime
   };
   renderStage("assembly-room");
+  window.setTimeout(checkAssemblyIpcAlerts, 0);
   const messages = {
     break: `Batch ${batchNumber} paused for room break by ${scannedId}.`,
     "resume-break": `Batch ${batchNumber} resumed after break by ${scannedId}.`,
@@ -9372,6 +9522,7 @@ function recordAssemblyBatchStart(product) {
   const batchNumber = product.batch;
   const now = getAssemblyAuditTimestamp();
   const user = getAssemblyAuditUser();
+  const startedAtMs = Date.now();
   const existingRecord = assemblyRecords[batchNumber] || {};
   assemblyRecords[batchNumber] = {
     ...existingRecord,
@@ -9384,6 +9535,9 @@ function recordAssemblyBatchStart(product) {
       timerPaused: false,
       startedBy: user,
       startedAt: now,
+      startedAtMs,
+      pausedDurationMs: 0,
+      pauseStartedAtMs: 0,
       lastAction: "Batch Started",
       lastActionBy: user,
       lastActionAt: now,
@@ -9394,12 +9548,14 @@ function recordAssemblyBatchStart(product) {
   assemblyExtraIpcRows = 0;
   assemblyActiveTab = "materials";
   renderStage("assembly-room");
+  window.setTimeout(checkAssemblyIpcAlerts, 0);
   statusMessage.textContent = `Batch ${batchNumber} started by ${user} at ${now}.`;
 }
 
 function recordAssemblyBatchFinish(batchNumber) {
   const now = getAssemblyAuditTimestamp();
   const user = getAssemblyAuditUser();
+  const completedAtMs = Date.now();
   const existingRecord = assemblyRecords[batchNumber] || {};
   assemblyRecords[batchNumber] = {
     ...existingRecord,
@@ -9412,6 +9568,13 @@ function recordAssemblyBatchFinish(batchNumber) {
       ...(existingRecord.runtime || {}),
       status: "completed",
       timerPaused: false,
+      completedAtMs,
+      pausedDurationMs: Number(existingRecord.runtime && existingRecord.runtime.pausedDurationMs || 0) + (
+        existingRecord.runtime && existingRecord.runtime.timerPaused && existingRecord.runtime.pauseStartedAtMs
+          ? Math.max(0, completedAtMs - Number(existingRecord.runtime.pauseStartedAtMs))
+          : 0
+      ),
+      pauseStartedAtMs: 0,
       lastAction: "Batch Completed",
       lastActionBy: user,
       lastActionAt: now
@@ -9432,16 +9595,22 @@ function signOffAssemblyPage(tabName) {
   const batchNumber = assemblySelectedProduct.batch;
   const now = getAssemblyAuditTimestamp();
   const existingRecord = assemblyRecords[batchNumber] || {};
+  const auditUser = getAssemblyAuditUser();
+  const ipcDueCount = getAssemblyIpcDueCount(existingRecord);
+  const ipcChecks = getAssemblyIpcChecks(existingRecord).map((check, index) => tabName === "ipc" && index < ipcDueCount
+    ? { ...check, confirmedBy: auditUser, confirmedAt: now }
+    : check);
   assemblyRecords[batchNumber] = {
     ...existingRecord,
-    user: getAssemblyAuditUser(),
+    user: auditUser,
     dateTime: Object.keys({ ...(existingRecord.signedTabs || {}), [tabName]: true }).length === 4 ? now : existingRecord.dateTime,
     startRecord: existingRecord.startRecord,
     finishRecord: existingRecord.finishRecord,
     startTime: existingRecord.startTime || (document.querySelector("#assembly-start-time") ? document.querySelector("#assembly-start-time").value : ""),
     finishTime: existingRecord.finishTime || (document.querySelector("#assembly-finish-time") ? document.querySelector("#assembly-finish-time").value : ""),
     briefingTime: existingRecord.briefingTime || "",
-    ipcPhotoName: document.querySelector("[data-assembly-ipc-evidence]") && document.querySelector("[data-assembly-ipc-evidence]").files.length ? document.querySelector("[data-assembly-ipc-evidence]").files[0].name : existingRecord.ipcPhotoName || "",
+    ipcPhotoName: ipcChecks.map((check) => check.photoName).filter(Boolean).join(", ") || existingRecord.ipcPhotoName || "",
+    ipcChecks,
     boxCount: productionRecords[batchNumber] ? productionRecords[batchNumber].boxCount : "",
     qtyReceived: document.querySelector("#assembly-qty-received") ? document.querySelector("#assembly-qty-received").value : "",
     reconciliationRows: document.querySelector("[data-assembly-recon-row]") ? Array.from(document.querySelectorAll("[data-assembly-recon-row]")).map(row => Object.fromEntries(Array.from(row.querySelectorAll("[data-recon-field]")).map(input => [input.dataset.reconField, input.value]))) : existingRecord.reconciliationRows,
@@ -9455,7 +9624,7 @@ function signOffAssemblyPage(tabName) {
     signedTabs: {
       ...(existingRecord.signedTabs || {}),
       [tabName]: {
-user: getAssemblyAuditUser(),
+user: auditUser,
 dateTime: now
       }
     }
@@ -9465,7 +9634,7 @@ dateTime: now
     requestAssemblyBatchFinish(batchNumber);
     return;
   }
-  statusMessage.textContent = `${tabName === "materials" ? "Initial Checks" : tabName === "samples" ? "Random Sample Check" : tabName === "ipc" ? "IPC Photo Check" : "Reconciliation"} marked done for ${batchNumber}.`;
+  statusMessage.textContent = `${tabName === "materials" ? "Initial Checks" : tabName === "samples" ? "Random Sample Check" : tabName === "ipc" ? "IPC Photo & In Process Checks" : "Reconciliation"} marked done for ${batchNumber}.`;
   renderStage("assembly-room");
 }
 
@@ -10132,8 +10301,8 @@ function renderQpReleaseLogPaper(products, editable = false, systemDecisions = f
         <tbody>${rows}</tbody>
       </table>
       <div class="qp-paper-signoff">
-        <label><strong>QP Signature:</strong>${editable ? `<input value="${htmlSafe(firstLog.qpSignature || "")}" placeholder="Completed on QP sign off" readonly>` : "<span></span>"}</label>
-        <label><strong>Release Date:</strong>${editable ? `<input value="${htmlSafe(firstLog.releaseDate || "")}" placeholder="Completed on QP sign off" readonly>` : "<span></span>"}</label>
+        <label><strong>QP Signature:</strong><span class="qp-paper-signoff-value">${editable ? htmlSafe(firstLog.qpSignature || "") : ""}</span></label>
+        <label><strong>Release Date:</strong><span class="qp-paper-signoff-value">${editable ? htmlSafe(firstLog.releaseDate || "") : ""}</span></label>
       </div>
       <footer class="qp-paper-footer">
         <div><span>Parent SOP: SOP/PLPI/0128</span><span>Effective Date: 05/09/2025</span></div>
@@ -10503,6 +10672,11 @@ function syncQpReleaseLogDecisions(products) {
 function setQpBatchDecision(decision) {
   if (!qpSelectedProduct) return;
   const batchNumber = qpSelectedProduct.batch;
+  if (qpReleaseRecords[batchNumber]?.approved) {
+    qpChecklistOpen = true;
+    renderStage("qp-release");
+    return;
+  }
   const decisionComplete = ["Hold", "Banding", "Rejected"].includes(decision);
   const existingLog = getQpReleaseLogDefaults(qpSelectedProduct);
   qpReleaseRecords[batchNumber] = {
@@ -10752,7 +10926,8 @@ function renderQpReleaseWork(stage) {
   if (stage.id === "qp-certified") return renderQpCertifiedCards();
   if (!qpSelectedProduct && stage.id === "qp-release" && qpSelectedReleaseId) return renderQpReleaseBatchList(stage, qpSelectedReleaseId);
   if (!qpSelectedProduct) return renderQpDashboard(stage);
-  return qpChecklistOpen ? renderQpChecklistWindow(stage) : renderQpSelectedDashboard(stage);
+  const review = renderQpSelectedDashboard(stage);
+  return qpChecklistOpen ? `<div inert>${review}</div><dialog id="qp-approval-dialog" class="qp-approval-dialog" aria-label="QP Final Approval">${renderQpChecklistWindow(stage)}</dialog>` : review;
 }
 
 function getQpDecisionRowClass(decision) {
@@ -10762,13 +10937,18 @@ function getQpDecisionRowClass(decision) {
   return "preqp-row-white";
 }
 
+function isQpReleaseLogFinalized(product) {
+  const record = qpReleaseRecords[product.batch] || {};
+  return Boolean(record.releaseLogApproved && record.releaseLog?.signedDateTime);
+}
+
 function getQpReleaseGroups() {
   const groups = new Map();
   const normalizedQpIdSearch = qpIdSearch.trim().toLowerCase();
   const normalizedBatchSearch = qpBatchSearch.trim().toLowerCase();
   Array.from(new Map(bnsProducts.map((product) => [product.batch, product])).values())
     .filter((product) => preQpCheckedBatchNumbers.includes(product.batch))
-    .filter((product) => getQpCertifiedDecisionTab(product) !== "Approved")
+    .filter((product) => !isQpReleaseLogFinalized(product))
     .filter((product) => {
       const record = qpReleaseRecords[product.batch] || {};
       const relId = getQpReleaseLogId(product.batch);
@@ -10874,11 +11054,54 @@ function getQpCertifiedDecisionTab(product) {
 
 function getQpCertifiedProducts() {
   return Array.from(new Map(bnsProducts.map(product => [product.batch, product])).values())
+    .filter(isQpReleaseLogFinalized)
     .filter(product => getQpCertifiedDecisionTab(product));
+}
+
+function ensureQpCertifiedTestData() {
+  // Dedicated fixtures only: never finalize or overwrite a user's existing batch.
+  const fixtures = [
+    ["QPC101", "99101", "Lumigan eye drops", "Certified", "390"],
+    ["QPC102", "99101", "Mastical tablets", "Certified", "280"],
+    ["QPC103", "99102", "Soludronate oral solution", "Certified", "180"],
+    ["QPC104", "99102", "Tamsulosin capsules", "Certified", "360"],
+    ["QPC105", "99103", "Ventolin inhaler", "Hold", "540"],
+    ["QPC106", "99103", "Clovate cream", "Hold", "240"],
+    ["QPC107", "99103", "Mastical tablets", "Banding", "320"],
+    ["QPC108", "99104", "Lumigan eye drops", "Rejected", "150"]
+  ];
+  fixtures.forEach(([batch, relId, name, decision, quantity], index) => {
+    let product = bnsProducts.find(item => item.batch === batch);
+    if (product && !product.qpCertifiedFixture) return;
+    if (!product) {
+      const reference = bnsProducts.find(item => item.product === name) || bnsProducts[0];
+      product = { ...reference, batch, product: name, description: name, quantity,
+        manufLotNo: `QC-2026-${101 + index}`, qpCertifiedFixture: true };
+      bnsProducts.push(product);
+    }
+    if (!qpReleaseRecords[batch]) {
+      const signedAt = `10 Sep 2026, ${String(9 + Number(relId.slice(-1))).padStart(2, "0")}:30:00`;
+      qpReleaseRecords[batch] = { qpId: relId, qpReady: true, decision,
+        approved: decision === "Certified", decisionBy: "training.qp", decisionDateTime: signedAt,
+        qpLogGeneratedAt: "10 Sep 2026, 08:00:00",
+        releaseLogBatchNumbers: fixtures.filter(item => item[1] === relId).map(item => item[0]),
+        releaseLogApproved: true, releaseLogApprovedBy: "training.qp", releaseLogApprovedAt: signedAt,
+        releaseLog: { approved: decision === "Certified" ? "Yes" : "No", damagedSample: "0",
+          comments: decision === "Hold" ? "Awaiting deviation assessment." : decision === "Banding" ? "Banding required before dispatch." : decision === "Rejected" ? "Packaging mismatch — batch rejected." : "",
+          qpSignature: "training.qp", signedBy: "training.qp", signedDateTime: signedAt,
+          releaseDate: "10 Sep 2026", status: "Completed" } };
+    }
+    postAssemblyRecords[batch] ||= { totalQty: quantity, boxCount: String(Math.ceil(Number(quantity) / 100)), user: "training.qa", dateTime: "10 Sep 2026, 08:00:00" };
+    generatedBarRecords[batch] ||= { product: { ...product }, batchNumber: batch, generatedBy: "training.qa", generatedAt: "10 Sep 2026, 08:00:00" };
+    ensureQpUpstreamDemoRecords(product);
+    if (!qpCertifiedBatchNumbers.includes(batch)) qpCertifiedBatchNumbers.push(batch);
+    if (qpReleaseRecords[batch].approved && !qpReleasedBatchNumbers.includes(batch)) qpReleasedBatchNumbers.push(batch);
+  });
 }
 
 function renderQpCertifiedCards() {
   ensurePreQpTestData();
+  ensureQpCertifiedTestData();
   const allProducts = getQpCertifiedProducts();
   const products = allProducts.filter(product => getQpCertifiedDecisionTab(product) === qpCertifiedTab);
   const groups = new Map();
@@ -10898,7 +11121,7 @@ function renderQpCertifiedCards() {
     <div class="qp-rel-filter-row"><label>Rel ID : <input data-qp-id-search value="${htmlSafe(qpIdSearch)}"></label><label>BNS Batch No : <input data-qp-batch-search value="${htmlSafe(qpBatchSearch)}"></label><button class="classic-button" type="button" data-qp-certified-search>Search</button></div>
     <div class="qp-rel-card-grid">${visibleGroups.map(([relId, batches]) => `<article class="qp-rel-card">
       <div class="qp-rel-card-top"><div><span>Release ID</span><strong>${htmlSafe(relId || "Not assigned")}</strong></div><em>${qpCertifiedTab}</em></div>
-      <div class="qp-certified-card-summary"><strong>${batches.length} batch${batches.length === 1 ? "" : "es"}</strong><span>${htmlSafe(batches.map(product => product.batch).join(", "))}</span><span>Total Quantity: <strong>${batches.reduce((sum, product) => sum + Number(product.quantity || 0), 0)}</strong></span></div>
+      <div class="qp-certified-card-summary"><div class="qp-certified-card-totals"><strong>${batches.length} batch${batches.length === 1 ? "" : "es"}</strong><span>Total Quantity: <strong>${batches.reduce((sum, product) => sum + Number(product.quantity || 0), 0)}</strong></span></div><span>${htmlSafe(batches.map(product => product.batch).join(", "))}</span></div>
       <footer><button class="classic-button" type="button" data-qp-certified-log="${htmlSafe(relId)}">View QP Release Log</button><button class="classic-button primary" type="button" data-qp-certified-open="${htmlSafe(relId)}">${qpCertifiedOpenRelId === relId ? "Hide Batch List" : "View Batch List"}</button></footer>
     </article>`).join("") || `<div class="qp-rel-empty">No ${qpCertifiedTab.toLowerCase()} batches match the current filters.</div>`}</div>
     ${visibleGroups.filter(([relId]) => relId === qpCertifiedOpenRelId).map(([relId, batches]) => `<section class="qp-certified-group-detail"><h3>Release ID ${htmlSafe(relId)} — ${qpCertifiedTab}</h3><div class="qp-rel-batch-table-shell"><table class="classic-table qp-rel-batch-table"><thead><tr>${qpCertifiedTab === "Approved" ? "<th>Select</th>" : ""}<th>B&amp;S Batch No.</th><th>Description</th><th>Strength</th><th>Pack Size</th><th>Mfg. Lot No.</th><th>Expiry Date</th><th>Quantity</th><th>Decision By</th><th>Decision Date</th></tr></thead><tbody>${batches.map(product => {
@@ -10920,7 +11143,7 @@ function openCertifiedQpLog(relId) {
 }
 
 function getCertifiedPrintProducts(batches) {
-  return [...new Set(batches)].map(batch => bnsProducts.find(product => product.batch === batch)).filter(product => product && getQpCertifiedDecisionTab(product) === "Approved");
+  return [...new Set(batches)].map(batch => bnsProducts.find(product => product.batch === batch)).filter(product => product && isQpReleaseLogFinalized(product) && getQpCertifiedDecisionTab(product) === "Approved");
 }
 
 function renderCertifiedReleaseLabels(products) {
@@ -11278,7 +11501,7 @@ function getQpReferenceComparisons(product) {
 }
 
 function renderQpReferenceComparisons(product) {
-  return `<section class="qp-reference-comparisons"><h3>BAR / IPC Photo References</h3><table class="classic-table"><thead><tr><th>Component</th><th>BAR reference</th><th>Reference on IPC photo</th><th>Result</th></tr></thead><tbody>${getQpReferenceComparisons(product).map(row => `<tr class="${row.matches ? "" : "qp-reference-attention"}"><td>${htmlSafe(row.label)}</td><td>${htmlSafe(row.bar)}</td><td>${htmlSafe(row.ipc)}</td><td>${row.matches ? "Match" : "Attention — reference mismatch"}</td></tr>`).join("")}</tbody></table></section>`;
+  return `<details class="qp-reference-comparisons"><summary>BAR / IPC Photo References</summary><table class="classic-table"><thead><tr><th>Component</th><th>BAR reference</th><th>Reference on IPC photo</th><th>Result</th></tr></thead><tbody>${getQpReferenceComparisons(product).map(row => `<tr class="${row.matches ? "" : "qp-reference-attention"}"><td>${htmlSafe(row.label)}</td><td>${htmlSafe(row.bar)}</td><td>${htmlSafe(row.ipc)}</td><td>${row.matches ? "Match" : "Attention — reference mismatch"}</td></tr>`).join("")}</tbody></table></details>`;
 }
 
 function getQpDummyEvidence(product) {
@@ -11355,7 +11578,7 @@ function renderQpSelectedDashboard(stage) {
   const pages = renderQpSourceDocument(product, selected.id) ?? (selected.id === "completed-bar" ? renderGeneratedBarDocument(product) : selected.id === "ipc-photos" ? Object.entries(evidence.photos).map(([kind, images]) => images.map(photo => `<div class="qp-digital-page qp-auto-photo-page"><header><strong>IPC — ${htmlSafe(kind)}</strong><span>Assembly</span></header><img src="${htmlSafe(photo.data)}" alt="${htmlSafe(photo.name)}"><footer>${htmlSafe(photo.name)} · Assembly evidence</footer></div>`).join("")).join("") || `<div class="qp-auto-missing">IPC photos missing from Assembly.</div>` : Array.from({length: Math.max(1, Number(selected.pages || 1))}, (_, index) => `<div class="qp-digital-page"><header><strong>B&amp;S HEALTHCARE</strong><span>Batch ${htmlSafe(product.batch)}</span></header><h3>${htmlSafe(selected.name)}</h3><p>${htmlSafe(product.product)} · ${htmlSafe(product.strength || "")}</p><p>Supplier: ${htmlSafe(evidence.supplier)}<br>Invoice: ${htmlSafe(evidence.invoice)}<br>Licence: ${htmlSafe(product.pl || "-")}</p>${index === 0 ? related.map(check => `<p><strong>${htmlSafe(check.name)}</strong><br>${htmlSafe(check.detail)}</p>`).join("") : '<div class="qp-digital-preview-lines"><i></i><i></i><i></i></div>'}<footer>Batch record · Page ${index + 1} of ${selected.pages}</footer></div>`).join(""));
   return `<div class="qp-release-layout qp-review-dashboard-layout"><section class="qp-release-window qp-release-detail-window qp-review-dashboard qp-auto-classic">
     <div class="qp-review-hero"><h2>QP Release Dashboard - ${htmlSafe(product.batch)}</h2><button class="classic-button qp-review-back" data-qp-back-list>Back to QP List</button></div>
-    <div class="qp-digital-summary"><div><strong>9</strong><span>Checks</span></div><div class="reviewed"><strong>${passed}</strong><span>Passed</span></div><div><strong>${acceptedCount}</strong><span>QP Accepted</span></div><div class="issues"><strong>${deviations}</strong><span>Deviations</span></div><div class="qp-digital-progress"><span>${passed} of 9 System Checks Passed</span><i><b style="width:${passed / 9 * 100}%"></b></i></div></div>
+    <div class="qp-digital-summary"><div><strong>9</strong><span>Checks</span></div><div class="reviewed"><strong>${passed}</strong><span>Passed</span></div><div class="issues"><strong>${deviations}</strong><span>Deviations</span></div><div class="qp-digital-progress"><span>${passed} of 9 System Checks Passed</span><i><b style="width:${passed / 9 * 100}%"></b></i></div></div>
     ${deviations || pending ? `<div class="qp-auto-alert" role="alert">${deviations} deviation(s) · ${pending} pending check(s). ${ready ? "All findings accepted by QP. Final approval is available." : "Review or accept each finding below to proceed."}</div>` : ""}
     <section class="qp-digital-workspace"><aside class="qp-digital-document-list"><div class="qp-digital-panel-title"><strong>Required Documents</strong><span>RPi / Assembly</span></div><div class="qp-digital-list-scroll">${documents.map((doc,index) => `<button class="qp-digital-document-row ${badge(statusFor(doc))} ${selected.id === doc.id ? "selected" : ""}" data-select-qp-document="${doc.id}"><span class="qp-digital-doc-index">${String(index + 1).padStart(2,"0")}</span><span><strong>${htmlSafe(doc.name)}</strong><small>${htmlSafe(doc.group)}</small></span><em>${statusFor(doc)}</em></button>`).join("")}</div></aside>
     <main class="qp-digital-review-pane"><div class="qp-digital-document-header"><strong>${htmlSafe(selected.name)}</strong><span class="qp-digital-status ${badge(statusFor(selected))}">${statusFor(selected)}</span></div>
@@ -11551,7 +11774,7 @@ function getQpProcess11Data(product) {
     data.schemaVersion = 2;
     if (data.retentionLot === legacySuggestedLot) data.retentionLot = "";
   }
-  data.quantityReleased = quantityReleased;
+  data.quantityReleased ??= quantityReleased;
   return data;
 }
 
@@ -11559,7 +11782,7 @@ function renderQpProcess11BarPage(product, editable = false) {
   const data = getQpProcess11Data(product);
   const isSigned = Boolean(data.signedAt);
   const fieldState = !editable || isSigned ? "disabled" : "";
-  const value = (field, fallback = "") => htmlSafe(data[field] || fallback);
+  const value = (field, fallback = "") => htmlSafe(data[field] ?? fallback);
   return `
     <section class="${editable ? "qp-process11-form" : "generated-bar-page qp-process11-bar-page"} ${editable ? "editable" : "read-only"}">
       <label class="qp-process11-retention">Sample pack from Lot No.
@@ -11575,7 +11798,7 @@ function renderQpProcess11BarPage(product, editable = false) {
       </section>
       <div class="qp-process11-approval-grid">
         <label>For and on behalf of B&amp;S Healthcare*<input value="${isSigned ? value("qpName") : ""}" readonly></label>
-        <label>Quantity released ${editable ? `<input id="qp-quantity-released" value="${value("quantityReleased")}" readonly>` : `<strong>${value("quantityReleased")}</strong>`}</label>
+        <label>Quantity released ${editable ? `<input id="qp-quantity-released" type="number" min="0" step="1" data-qp-process11-input value="${value("quantityReleased")}" ${qpReleaseRecords[product.batch]?.approved ? "readonly" : ""}>` : `<strong>${value("quantityReleased")}</strong>`}</label>
         <label>Signature<input value="${isSigned ? value("signedBy", data.qpName) : ""}" readonly></label>
         <label>Date<input value="${isSigned ? value("signedAt") : ""}" readonly></label>
       </div>
@@ -11601,10 +11824,9 @@ function renderQpChecklistWindow(stage) {
     <div class="qp-release-layout qp-process11-layout">
       <section class="qp-release-window qp-process11-window">
         <div class="qp-process11-header"><strong>QP Final Approval</strong><button class="classic-button" type="button" data-qp-back-dashboard>Back to Document Review</button></div>
-        <div class="qp-process11-paper-wrap">${renderQpProcess11BarPage(product, true)}</div>
+        <div class="qp-process11-paper-wrap">${renderQpProcess11BarPage(product, !qpReleaseRecords[product.batch]?.approved)}</div>
         <div class="qp-process11-actions">
-          ${isSigned ? `<span>Process 11 signed by ${htmlSafe(data.signedBy)} on ${htmlSafe(data.signedAt)}.</span>` : `<button class="classic-button" type="button" data-qp-process11-sign>Click to Sign</button>`}
-          <button class="classic-button primary" type="button" id="qp-release-complete-button" ${isSigned ? "" : "disabled"}>Confirm Approval</button>
+          ${qpReleaseRecords[product.batch]?.approved ? "<span>Approved — read only</span>" : `<button class="classic-button" type="button" data-qp-process11-sign ${isSigned ? "disabled" : ""}>Click to Sign</button><button class="classic-button primary" type="button" id="qp-release-complete-button" ${isSigned ? "" : "disabled"}>Confirm Approval</button>`}
         </div>
       </section>
     </div>`;
@@ -11615,25 +11837,53 @@ function saveQpProcess11FormState() {
   const batchNumber = qpSelectedProduct.batch;
   const previous = qpReleaseRecords[batchNumber] || {};
   const existing = getQpProcess11Data(qpSelectedProduct);
+  if (previous.approved) return;
   const process11 = {
     ...existing,
     schemaVersion: 2,
     retentionLot: document.querySelector("#qp-retention-lot")?.value || "",
     comments: document.querySelector("#qp-release-comment")?.value || "",
     qpName: existing.qpName || "",
-    quantityReleased: Math.max(0, (Number(qpSelectedProduct.quantity) || 0) - 1),
+    quantityReleased: document.querySelector("#qp-quantity-released")?.value ?? existing.quantityReleased,
     declarationAccepted: Boolean(document.querySelector("#qp-declaration")?.checked),
     surplusStatus: document.querySelector("#qp-surplus-status")?.value || "",
     destroyedBy: document.querySelector("#qp-destroyed-by")?.value || ""
   };
-  qpReleaseRecords[batchNumber] = { ...previous, process11 };
+  const quantityChanged = String(process11.quantityReleased) !== String(existing.quantityReleased);
+  if (quantityChanged) { delete process11.signedAt; delete process11.signedBy; process11.qpName = ""; }
+  qpReleaseRecords[batchNumber] = { ...previous, process11, ...(quantityChanged ? { process11Signoff: {} } : {}) };
   ensureGeneratedBarRecord(qpSelectedProduct).process11 = { ...process11 };
   persistQpReleaseRecords();
 }
 
+function requestQpProcess11Confirmation() {
+  if (document.querySelector("#qp-process11-sign-confirm")) return;
+  const trigger = document.activeElement;
+  const dialog = document.createElement("dialog");
+  dialog.id = "qp-process11-sign-confirm";
+  dialog.className = "qp-log-sign-confirm";
+  dialog.setAttribute("aria-labelledby", "qp-process11-sign-title");
+  dialog.setAttribute("aria-describedby", "qp-process11-sign-message");
+  dialog.innerHTML = `<h3 id="qp-process11-sign-title">Confirm Sign Off</h3><p id="qp-process11-sign-message">Are you sure you want to sign off?</p><div class="confirm-actions"><button type="button" class="classic-button" data-process11-sign-cancel>No</button><button type="button" class="classic-button primary" data-process11-sign-yes>Yes, Sign Off</button></div>`;
+  const dismiss = () => { dialog.close(); dialog.remove(); if (trigger?.isConnected) trigger.focus(); };
+  dialog.querySelector("[data-process11-sign-cancel]").addEventListener("click", dismiss);
+  dialog.addEventListener("cancel", event => { event.preventDefault(); dismiss(); });
+  dialog.querySelector("[data-process11-sign-yes]").addEventListener("click", () => {
+    dismiss();
+    signQpProcess11();
+  }, { once: true });
+  document.body.appendChild(dialog);
+  // Native dialogs share the browser top layer: this opens above the approval dialog.
+  dialog.showModal();
+  dialog.querySelector("[data-process11-sign-cancel]").focus();
+}
+
 function signQpProcess11() {
   if (!qpSelectedProduct) return;
+  if (qpReleaseRecords[qpSelectedProduct.batch]?.approved) return;
   saveQpProcess11FormState();
+  const quantity = getQpProcess11Data(qpSelectedProduct).quantityReleased;
+  if (String(quantity).trim() === "" || !Number.isInteger(Number(quantity)) || Number(quantity) < 0) { statusMessage.textContent = "Enter a valid whole-number quantity before signing."; return; }
   const batchNumber = qpSelectedProduct.batch;
   const now = getAssemblyAuditTimestamp();
   const signedBy = currentLogin ? currentLogin.user : "qp.release";
@@ -11798,6 +12048,8 @@ function updateQpReleaseAvailability() {
   const record = qpReleaseRecords[qpSelectedProduct.batch] || {};
   if (document.querySelector(".qp-process11-window")) {
     submitButton.disabled = !Boolean(record.process11Signoff && record.process11Signoff.signedAt);
+    const signButton = document.querySelector("[data-qp-process11-sign]");
+    if (signButton) signButton.disabled = Boolean(record.process11Signoff?.signedAt);
     return;
   }
   const declarationAccepted = document.querySelector("#qp-declaration");
@@ -11868,9 +12120,35 @@ function saveQpReleaseLog() {
   updateQpReleaseAvailability();
 }
 
+function requestQpReleaseLogConfirmation() {
+  if (document.querySelector("#qp-log-sign-confirm")) return;
+  const trigger = document.activeElement;
+  const dialog = document.createElement("dialog");
+  dialog.id = "qp-log-sign-confirm";
+  dialog.className = "qp-log-sign-confirm";
+  dialog.setAttribute("aria-labelledby", "qp-log-sign-confirm-title");
+  dialog.innerHTML = `<h3 id="qp-log-sign-confirm-title">Confirm QP Release Log Approval</h3><p>Sign and approve this Release Log Sheet?</p><p>This will save the sheet, move its batches to the next stage and remove them from the QP queue.</p><div class="confirm-actions"><button type="button" class="classic-button" data-qp-log-confirm-cancel>Cancel</button><button type="button" class="classic-button primary" data-qp-log-confirm-yes>Confirm Sign &amp; Approve</button></div>`;
+  const dismiss = () => { dialog.close(); dialog.remove(); if (trigger?.isConnected) trigger.focus(); };
+  dialog.querySelector("[data-qp-log-confirm-cancel]").addEventListener("click", dismiss);
+  dialog.addEventListener("cancel", event => { event.preventDefault(); dismiss(); });
+  dialog.querySelector("[data-qp-log-confirm-yes]").addEventListener("click", () => {
+    dismiss();
+    signQpReleaseLog();
+  }, { once: true });
+  document.body.appendChild(dialog);
+  dialog.showModal();
+  dialog.querySelector("[data-qp-log-confirm-cancel]").focus();
+}
+
 function signQpReleaseLog() {
   const rows = collectQpReleaseLogRows();
   const products = rows.map((row) => bnsProducts.find((product) => product.batch === row.batchNumber)).filter(Boolean);
+  const relIds = new Set(products.map(product => getQpReleaseLogId(product.batch)));
+  const groupProducts = bnsProducts.filter(product => relIds.has(getQpReleaseLogId(product.batch)));
+  if (relIds.size !== 1 || groupProducts.some(product => !products.some(selected => selected.batch === product.batch))) {
+    statusMessage.textContent = "Open the complete Release Log group before signing and approving.";
+    return;
+  }
   if (!rows.length || products.length !== rows.length || products.some((product) => !isQpBatchDecisionComplete(product))) {
     statusMessage.textContent = "Complete the QP decision for every batch before signing and approving the Release Log.";
     return;
@@ -11902,7 +12180,14 @@ function signQpReleaseLog() {
     };
   });
   persistQpReleaseRecords();
-  statusMessage.textContent = `QP Release Log ${qpSelectedReleaseId || ""} signed and approved for ${rows.length} batch${rows.length === 1 ? "" : "es"}.`;
+  products.forEach(product => {
+    if (!qpCertifiedBatchNumbers.includes(product.batch)) qpCertifiedBatchNumbers.push(product.batch);
+    if (getQpCertifiedDecisionTab(product) === "Approved") {
+      if (!qpReleasedBatchNumbers.includes(product.batch)) qpReleasedBatchNumbers.push(product.batch);
+      archiveApprovedBatch(product);
+    }
+  });
+  statusMessage.textContent = `Release Log approved. ${rows.length} batches moved out of the QP queue to their next stage.`;
   printPreviewModal.classList.add("hidden");
   qpSelectedProduct = null;
   qpSelectedReleaseId = "";
@@ -12043,6 +12328,9 @@ ${renderQpReleaseLogPaper(groupProducts, true, true)}
 
 function completeQpRelease() {
   if (!qpSelectedProduct) return;
+  if (qpReleaseRecords[qpSelectedProduct.batch]?.approved) return;
+  saveQpProcess11FormState();
+  if (!qpReleaseRecords[qpSelectedProduct.batch]?.process11Signoff?.signedAt) { statusMessage.textContent = "Sign the current details before confirming approval."; return; }
   if (!areAllQpDashboardDocumentsVerified(qpSelectedProduct)) {
     statusMessage.textContent = "Approval blocked: resolve all system-check alerts first.";
     return;
@@ -12079,10 +12367,7 @@ function completeQpRelease() {
     }]
   };
   persistQpReleaseRecords();
-  if (!qpReleasedBatchNumbers.includes(batchNumber)) qpReleasedBatchNumbers.push(batchNumber);
-  if (!qpCertifiedBatchNumbers.includes(batchNumber)) qpCertifiedBatchNumbers.push(batchNumber);
-  statusMessage.textContent = `Batch ${batchNumber} QP released, signed off, and moved to the next stage.`;
-  archiveApprovedBatch(qpSelectedProduct);
+  statusMessage.textContent = `Batch ${batchNumber} decision saved. Sign and approve the complete QP Release Log to move the batches forward.`;
   window.setTimeout(() => {
     qpSelectedProduct = null;
     qpChecklistOpen = false;
@@ -12099,9 +12384,9 @@ function getBatchRecordStore() {
 }
 
 function archiveApprovedBatch(product) {
-  if (getQpCertifiedDecisionTab(product) !== "Approved") return null;
+  if (!isQpReleaseLogFinalized(product) || getQpCertifiedDecisionTab(product) !== "Approved") return null;
   const store = getBatchRecordStore();
-  if (store[product.batch]) return store[product.batch];
+  if (store[product.batch] && store[product.batch].releaseLogApprovedAt && store[product.batch].releaseLogApprovedAt === qpReleaseRecords[product.batch].releaseLogApprovedAt) return store[product.batch];
   const decision = qpReleaseRecords[product.batch] || {};
   ensureQpUpstreamDemoRecords(product);
   const evidence = getQpDummyEvidence(product);
@@ -12127,7 +12412,7 @@ function archiveApprovedBatch(product) {
     return { id: doc.id, name: doc.name, fileName: doc.fileName, source: doc.group, html: template.innerHTML };
   });
   documents.push({ id: "qp-decision", name: "QP Decision & Review History", fileName: `${product.batch}_QP_Decision.html`, source: "QP", html: `<section class="qp-source-sheet"><h2>QP Decision & Review History</h2><p>Batch ${htmlSafe(product.batch)} · Approved</p><p>${htmlSafe(decision.user || decision.decisionBy || "")} · ${htmlSafe(decision.dateTime || decision.decisionDateTime || "")}</p>${(decision.auditTrail || []).map(entry => `<p><strong>${htmlSafe(entry.document || "")} — ${htmlSafe(entry.result || "")}</strong><br>${htmlSafe(entry.reviewedBy || entry.finalApprovedBy || "")} · ${htmlSafe(entry.reviewedAt || entry.approvalDateTime || "")}<br>${htmlSafe(entry.originalFinding || "")}<br>${htmlSafe(entry.comments || "")}</p>`).join("")}</section>` });
-  store[product.batch] = { batch: product.batch, product: product.product, relId: getQpReleaseLogId(product.batch), approvedBy: decision.user || decision.decisionBy || "qp.release", approvedAt: decision.dateTime || decision.decisionDateTime || "", archivedAt: getAssemblyAuditTimestamp(), documents };
+  store[product.batch] = { batch: product.batch, product: product.product, relId: getQpReleaseLogId(product.batch), approvedBy: decision.user || decision.decisionBy || "qp.release", releaseLogApprovedAt: decision.releaseLogApprovedAt, approvedAt: decision.releaseLogApprovedAt || decision.dateTime || decision.decisionDateTime || "", archivedAt: getAssemblyAuditTimestamp(), documents };
   try { localStorage.setItem("plpi-batch-records-v1", JSON.stringify(store)); }
   catch { statusMessage.textContent = "Batch approved. Batch Record is available in this session, but browser storage is full; archive persistence failed."; }
   return store[product.batch];
@@ -12135,9 +12420,10 @@ function archiveApprovedBatch(product) {
 
 function renderBatchRecordModule() {
   ensurePreQpTestData();
+  ensureQpCertifiedTestData();
   getQpCertifiedProducts().filter(product => getQpCertifiedDecisionTab(product) === "Approved").forEach(archiveApprovedBatch);
-  const records = Object.values(getBatchRecordStore());
-  const selected = getBatchRecordStore()[window.batchRecordSelected];
+  const records = Object.values(getBatchRecordStore()).filter(record => isQpReleaseLogFinalized({batch: record.batch}));
+  const selected = records.find(record => record.batch === window.batchRecordSelected);
   if (selected) return `<section class="batch-record-module"><div class="qp-review-hero"><h2>Batch Record — ${htmlSafe(selected.batch)}</h2><button class="classic-button" data-batch-record-back>Back to Batch Records</button></div><p>${htmlSafe(selected.product)} · Release ID ${htmlSafe(selected.relId)} · Approved by ${htmlSafe(selected.approvedBy)} · ${htmlSafe(selected.approvedAt)}</p><button class="classic-button" data-batch-record-preview="all">View / Print Complete Record</button><table class="classic-table"><thead><tr><th>Document</th><th>File</th><th>Action</th></tr></thead><tbody>${selected.documents.map(doc => `<tr><td>${htmlSafe(doc.name)}</td><td>${htmlSafe(doc.fileName)}</td><td><button class="classic-button" data-batch-record-preview="${doc.id}">View / Print</button></td></tr>`).join("")}</tbody></table></section>`;
   return `<section class="batch-record-module"><div class="qp-review-hero"><h2>Batch Record</h2><span>${records.length} approved batches</span></div><div class="batch-record-search-row"><input id="batch-record-search" aria-label="Search batch, product or Release ID" placeholder="Batch, product or Release ID" value="${htmlSafe(window.batchRecordSearch || "")}"><button class="classic-button" data-batch-record-search>Search</button></div><div class="qp-rel-cards">${records.filter(record => `${record.batch} ${record.product} ${record.relId}`.toLowerCase().includes((window.batchRecordSearch || "").toLowerCase())).map(record => `<article class="qp-rel-card"><h3>${htmlSafe(record.batch)}</h3><p class="batch-record-product-name">${htmlSafe(record.product)}</p><div class="batch-record-card-footer"><span>Approved ${htmlSafe(record.approvedAt || "—")}</span><button class="classic-button" aria-label="Open batch record ${htmlSafe(record.batch)}" data-batch-record-open="${htmlSafe(record.batch)}">Open</button></div></article>`).join("") || "<p>No approved batch records found.</p>"}</div></section>`;
 }
@@ -12363,8 +12649,27 @@ function syncWorkflowClearanceForBar(batchNumber) {
       checked: check.checked || Boolean(signedTabs.samples),
       detail: check.closest("tr")?.querySelector(".mfg-lot-col")?.textContent.trim() || ""
     }));
-    const ipcInput = document.querySelector("[data-assembly-ipc-evidence]");
-    const ipcAttached = Boolean(signedTabs.ipc || existingRecord.ipcPhotoName || (ipcInput && ipcInput.files && ipcInput.files.length));
+    const ipcChecklist = getAssemblyIpcBarChecklist(assemblySelectedProduct);
+    const ipcChecks = getAssemblyIpcChecks(existingRecord);
+    const ipcItems = ipcChecks.flatMap((ipcCheck, checkIndex) => {
+      const confirmations = Array.isArray(ipcCheck.confirmations) ? ipcCheck.confirmations : [];
+      const target = formatAssemblyIpcTarget(ipcCheck.targetMinutes ?? getAssemblyIpcTargetMinutes(checkIndex));
+      const confirmationDetail = ipcCheck.confirmedBy
+        ? `Confirmed by ${ipcCheck.confirmedBy} at ${ipcCheck.confirmedAt || "-"}`
+        : `Target active time: ${target}`;
+      return [
+        ...ipcChecklist.map((item, itemIndex) => ({
+          label: `IPC ${checkIndex + 1} - ${item.label}`,
+          checked: Boolean(confirmations[itemIndex]),
+          detail: `${item.value}; ${confirmationDetail}`
+        })),
+        {
+          label: `IPC ${checkIndex + 1} - Photo evidence captured`,
+          checked: Boolean(ipcCheck.photoName),
+          detail: `${ipcCheck.photoName || "No photo"}; ${confirmationDetail}`
+        }
+      ];
+    });
     const clearanceItems = [...document.querySelectorAll('[data-assembly-tab-check="recon"]')].map((check, index) => ({
       label: check.closest(".assembly-clearance-row")?.querySelector("strong")?.textContent.trim() || `End-of-batch clearance ${index + 1}`,
       checked: check.checked || Boolean(signedTabs.recon)
@@ -12375,7 +12680,7 @@ function syncWorkflowClearanceForBar(batchNumber) {
       clearanceSnapshot: createSnapshot("Assembly", [
         { title: "Initial Checks", items: initialItems },
         { title: "Random Sample Checks", items: sampleItems },
-        { title: "IPC Photo Check", items: [{ label: "IPC photo evidence captured", checked: ipcAttached, detail: existingRecord.ipcPhotoName || (ipcAttached ? "Photo attached" : "") }] },
+        { title: "In Process Checks", items: ipcItems },
         { title: "Reconciliation and End-of-Batch Clearance", items: clearanceItems }
       ])
     };
@@ -12441,7 +12746,7 @@ function renderBarAuditRows(record, emptyMessage = "No activity recorded at this
     ]);
   });
   Object.entries(record.signedTabs || {}).forEach(([page, completion]) => {
-    const pageNames = { materials: "Initial Checks", samples: "Random Sample Check", ipc: "IPC Photo Check", recon: "Reconciliation & Closure" };
+    const pageNames = { materials: "Initial Checks", samples: "Random Sample Check", ipc: "IPC Photo & In Process Checks", recon: "Reconciliation & Closure" };
     rows.push([
       pageNames[page] || page,
       "Signed",
@@ -13287,6 +13592,32 @@ function renderBraillePrintingTask(stage) {
   `;
 }
 
+function removeRepeatedModuleTitles() {
+  const content = document.querySelector("#stage-work-content");
+  const normalize = text => String(text || "").trim().replace(/\s+/g, " ").toLowerCase();
+  const title = normalize(document.querySelector("#module-window-title").textContent);
+  if (!title) return;
+  content.querySelectorAll(".sub-window-title, h1, h2, h3").forEach(heading => {
+    if (normalize(heading.textContent) !== title || heading.closest("dialog, .release-log-preview, .qp-source-sheet, .preview-paper, .document-preview")) return;
+    // Remove only the repeated text, never neighbouring controls or summaries.
+    let redundant = heading;
+    while (redundant.parentElement !== content && redundant.parentElement &&
+      redundant.parentElement.children.length === 1 &&
+      normalize(redundant.parentElement.textContent) === title &&
+      !redundant.parentElement.matches("section, main, article, [id]")) {
+      redundant = redundant.parentElement;
+    }
+    const next = redundant.nextElementSibling;
+    const parent = redundant.parentElement;
+    redundant.remove();
+    if (next) next.classList.add("module-title-following-content");
+    // Header remains when it contains actions/counts, but needs no title column.
+    if (parent && parent.matches("header, [class*='header'], .qp-review-hero")) {
+      parent.classList.add("module-title-actions-only");
+    }
+  });
+}
+
 function renderStage(stageId) {
   const stage = findStage(stageId);
   currentStageId = stage.id;
@@ -13422,6 +13753,33 @@ function renderStage(stageId) {
   : stage.id === "qp-release" || stage.id === "qp-certified"
     ? renderQpReleaseWork(stage)
   : renderGenericStageWork(stage);
+  removeRepeatedModuleTitles();
+  const rpChecklistDialog = document.querySelector("#rp-checklist-dialog");
+  if (rpChecklistDialog) {
+    rpChecklistDialog.showModal();
+    const closeChecklist = () => {
+      getRpMergePoNos(selectedRpApprovalPo).forEach(poNo => {
+        if (rpPackWorkflows[poNo]) rpPackWorkflows[poNo].rpChecklistOpen = false;
+      });
+      renderStage("rp-pack");
+      document.querySelector("[data-rp-approve-open-checklist]")?.focus();
+    };
+    rpChecklistDialog.querySelector("[data-rp-checklist-close]").addEventListener("click", closeChecklist);
+    rpChecklistDialog.addEventListener("cancel", event => {
+      event.preventDefault();
+      closeChecklist();
+    });
+  }
+  const approvalDialog = document.querySelector("#qp-approval-dialog");
+  if (approvalDialog) {
+    approvalDialog.showModal();
+    approvalDialog.addEventListener("cancel", event => {
+      event.preventDefault();
+      saveQpProcess11FormState();
+      qpChecklistOpen = false;
+      renderStage("qp-release");
+    });
+  }
   updateSignoffAvailability();
   updatePackingListAvailability();
   updateRpApprovalAvailability();
@@ -13520,6 +13878,16 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const launcherToggle = event.target.closest("[data-toggle-module-launcher]");
+  if (launcherToggle) {
+    const desktop = launcherToggle.closest(".desktop");
+    const collapsed = desktop.classList.toggle("modules-collapsed");
+    launcherToggle.setAttribute("aria-expanded", String(!collapsed));
+    launcherToggle.setAttribute("aria-label", collapsed ? "Expand modules" : "Collapse modules");
+    launcherToggle.title = collapsed ? "Expand modules" : "Collapse modules";
+    launcherToggle.textContent = collapsed ? "‹" : "›";
+    return;
+  }
   const preQpMaterialRow = event.target.closest("[data-preqp-material-row]");
   if (preQpMaterialRow && !event.target.closest(".compact-tick")) {
     const checkbox = preQpMaterialRow.querySelector("[data-preqp-material-check]");
@@ -14889,6 +15257,7 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
       return;
     }
     const poNo = selectedRpApprovalPo;
+    document.querySelector("#rp-checklist-dialog")?.close();
     const overlay = document.createElement("div");
     overlay.id = "rp-pdf-modal-container";
     overlay.innerHTML = renderRpApprovalExactPdfModal(poNo, rpApprovalAnswers[poNo], null);
@@ -15188,7 +15557,7 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
     const pageMeta = {
       materials: ["Assembly Room - Initial Checks", "", "1"],
       samples: ["Random Sample Check", "", "2"],
-      ipc: ["IPC Photo Check", "", "3"],
+      ipc: ["IPC Photo & In Process Checks", "", "3"],
       recon: ["Reconciliation & Closure", "", "4"]
     }[assemblyActiveTab];
     document.querySelectorAll("[data-assembly-tab]").forEach((tab) => tab.classList.toggle("active", tab === assemblyTab));
@@ -15207,6 +15576,7 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
     if (pageCount) pageCount.textContent = `Page ${pageMeta[2]} of 4`;
     if (pageStatus) pageStatus.textContent = isPageComplete ? "Done" : "In progress";
     updateAssemblyAvailability();
+    window.setTimeout(checkAssemblyIpcAlerts, 0);
     return;
   }
 
@@ -15483,6 +15853,7 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
   }
 
   if (event.target.closest("[data-qp-back-dashboard]")) {
+    saveQpProcess11FormState();
     qpChecklistOpen = false;
     renderStage("qp-release");
     return;
@@ -15656,7 +16027,7 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
   }
 
   if (event.target.closest("[data-sign-qp-release-log]")) {
-    requestUserSignoff(signQpReleaseLog, "QP Release Log");
+    requestQpReleaseLogConfirmation();
     return;
   }
 
@@ -15817,7 +16188,7 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
 
   if (event.target.closest("[data-qp-process11-sign]")) {
     saveQpProcess11FormState();
-    requestUserSignoff(signQpProcess11, "Process 11 - Printed BAR");
+    requestQpProcess11Confirmation();
     return;
   }
 
@@ -16403,12 +16774,61 @@ totalBlistersInput.value = total;
     statusMessage.textContent = "Assembly Room filter updated.";
     return;
   }
+  if (event.target.matches("[data-assembly-ipc-check]")) {
+    if (!assemblySelectedProduct) return;
+    const batchNumber = assemblySelectedProduct.batch;
+    const checkIndex = Number(event.target.dataset.assemblyIpcCheck || 0);
+    const itemIndex = Number(event.target.dataset.assemblyIpcItem || 0);
+    const existingRecord = assemblyRecords[batchNumber] || {};
+    const ipcChecks = getAssemblyIpcChecks(existingRecord);
+    const currentCheck = ipcChecks[checkIndex] || {};
+    const confirmations = Array.isArray(currentCheck.confirmations) ? [...currentCheck.confirmations] : [];
+    confirmations[itemIndex] = event.target.checked;
+    ipcChecks[checkIndex] = {
+      ...currentCheck,
+      targetMinutes: getAssemblyIpcTargetMinutes(checkIndex),
+      confirmations
+    };
+    assemblyRecords[batchNumber] = { ...existingRecord, ipcChecks };
+    event.target.closest(".assembly-ipc-checklist-row")?.classList.toggle("is-checked", event.target.checked);
+    statusMessage.textContent = `IPC ${checkIndex + 1} checklist updated for ${batchNumber}.`;
+    updateAssemblyAvailability();
+    return;
+  }
   if (event.target.matches("[data-assembly-ipc-evidence]")) {
-    const evidenceLabel = event.target.closest(".assembly-evidence-button");
-    const evidenceText = evidenceLabel ? evidenceLabel.querySelector("span") : null;
-    if (evidenceLabel) evidenceLabel.classList.toggle("is-uploaded", Boolean(event.target.files && event.target.files.length));
-    if (evidenceText) evidenceText.textContent = event.target.files && event.target.files.length ? "Photo attached" : "Add photo";
-    statusMessage.textContent = event.target.files && event.target.files.length ? "IPC photo evidence attached." : "IPC photo evidence cleared.";
+    if (!assemblySelectedProduct) return;
+    const batchNumber = assemblySelectedProduct.batch;
+    const checkIndex = Number(event.target.dataset.assemblyIpcEvidence || 0);
+    const file = event.target.files && event.target.files.length ? event.target.files[0] : null;
+    const existingRecord = assemblyRecords[batchNumber] || {};
+    const ipcChecks = getAssemblyIpcChecks(existingRecord);
+    const currentCheck = ipcChecks[checkIndex] || {};
+    if (file) {
+      ipcChecks[checkIndex] = {
+        ...currentCheck,
+        targetMinutes: getAssemblyIpcTargetMinutes(checkIndex),
+        photoName: file.name,
+        checkedBy: getAssemblyAuditUser(),
+        checkedAt: getAssemblyAuditTimestamp()
+      };
+    } else {
+      ipcChecks[checkIndex] = {
+        ...currentCheck,
+        targetMinutes: getAssemblyIpcTargetMinutes(checkIndex),
+        photoName: "",
+        checkedBy: "",
+        checkedAt: ""
+      };
+    }
+    assemblyRecords[batchNumber] = {
+      ...existingRecord,
+      ipcChecks,
+      ipcPhotoName: ipcChecks.map((check) => check.photoName).filter(Boolean).join(", ")
+    };
+    renderStage("assembly-room");
+    statusMessage.textContent = file
+      ? `IPC photo check ${checkIndex + 1} captured by ${getAssemblyAuditUser()}.`
+      : `IPC photo check ${checkIndex + 1} evidence cleared.`;
     updateAssemblyAvailability();
     return;
   }  if (event.target.matches("[data-assembly-input]")) {
@@ -16493,6 +16913,7 @@ document.querySelectorAll(".tab").forEach((button) => {
   });
 });
 
+window.setInterval(checkAssemblyIpcAlerts, 10000);
 startWireframe();
 
 
