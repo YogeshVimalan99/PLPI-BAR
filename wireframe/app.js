@@ -7256,6 +7256,10 @@ function getQaChecklistReviewComplete(item) {
   return item?.qaDecisionChoice === "approved";
 }
 
+function getQaChecklistRejectReady(item) {
+  return item?.qaDecisionChoice === "reject" && Boolean(String(item?.qaDecisionComment || "").trim());
+}
+
 function renderGoodsReceivingChecklistDocument(item, interactive = true) {
   const data = item.checklistData || {};
   const checks = data.checks || [];
@@ -7265,7 +7269,8 @@ function renderGoodsReceivingChecklistDocument(item, interactive = true) {
   const nonpharma = getCheck("nonpharma");
   const damage = getCheck("damage");
   const confirmed = getCheck("confirmed");
-  const decision = item.qaDecisionChoice || (item.qaDecision ? "approved" : "");
+  const savedOutcome = String(item.qaDecision?.outcome || "").toLowerCase();
+  const decision = item.qaDecisionChoice || (savedOutcome.includes("reject") ? "reject" : savedOutcome.includes("quarantine") ? "quarantine" : item.qaDecision ? "approved" : "");
   const qaName = item.qaDecision?.user || "";
   const qaDate = item.qaDecision?.dateTime || "";
   const receiverName = data.receiverName || item.raisedBy || "â€”";
@@ -7277,9 +7282,9 @@ function renderGoodsReceivingChecklistDocument(item, interactive = true) {
     <label><input type="checkbox" data-qa-decision="approved" data-qa-decision-po="${item.poNo}" ${decision === "approved" ? "checked" : ""}> Approved for unpacking</label>
     <label><input type="checkbox" data-qa-decision="reject" data-qa-decision-po="${item.poNo}" ${decision === "reject" ? "checked" : ""}> Reject</label>
   ` : `
-    <span>â˜ Quarantine for investigation</span>
-    <span>${decision === "approved" ? "â˜‘" : "â˜"} Approved for unpacking</span>
-    <span>${decision === "reject" ? "â˜‘" : "â˜"} Reject</span>
+    <span>${decision === "quarantine" ? "&#9745;" : "&#9744;"} Quarantine for investigation</span>
+    <span>${decision === "approved" ? "&#9745;" : "&#9744;"} Approved for unpacking</span>
+    <span>${decision === "reject" ? "&#9745;" : "&#9744;"} Reject</span>
   `;
   const commentControl = interactive
     ? `<input type="text" data-qa-decision-comment="${item.poNo}" value="${escapeQaChecklistText(item.qaDecisionComment || "")}" aria-label="QA comment">`
@@ -7323,24 +7328,30 @@ function renderGoodsReceivingChecklistDocument(item, interactive = true) {
 function renderQaChecklistReviewModal(item) {
   const isQaDecisionPending = item.status === "Waiting for QA decision";
   const readyToApprove = getQaChecklistReviewComplete(item);
+  const readyToReject = getQaChecklistRejectReady(item);
+  const reviewSubtitle = isQaDecisionPending
+    ? "Completed by Goods In and ready for QA decision"
+    : item.status === "Rejected by QA"
+      ? "Rejected by QA — final decision"
+      : "QA-approved checklist ready for acceptance";
   return `
     <div class="qa-checklist-modal-backdrop" id="qa-checklist-review-modal" role="dialog" aria-modal="true" aria-labelledby="qa-checklist-review-title">
       <div class="qa-checklist-modal-window grc-exact-modal">
-        <div class="grc-review-toolbar"><div><strong id="qa-checklist-review-title">Goods Receiving Check List</strong><span>${isQaDecisionPending ? "Completed by Goods In and ready for QA decision" : "QA-approved checklist ready for acceptance"}</span></div><button type="button" class="qa-modal-close" data-close-qa-checklist-review aria-label="Close">&times;</button></div>
+        <div class="grc-review-toolbar"><div><strong id="qa-checklist-review-title">Goods Receiving Check List</strong><span>${reviewSubtitle}</span></div><button type="button" class="qa-modal-close" data-close-qa-checklist-review aria-label="Close">&times;</button></div>
         <div class="qa-checklist-modal-body grc-exact-body">
           ${renderGoodsReceivingChecklistDocument(item, isQaDecisionPending)}
         </div>
         <footer class="qa-checklist-modal-footer grc-review-footer">
-          <button type="button" class="classic-button" data-close-qa-checklist-review>Close</button>
-          ${isQaDecisionPending ? `<div><span id="qa-approval-help">${readyToApprove ? "Approved for unpacking selected. Ready to approve." : "Select Approved for unpacking to continue."}</span><button type="button" class="classic-button primary" data-qa-modal-approve="${item.poNo}" ${readyToApprove ? "" : "disabled"}>Approve checklist</button></div>` : ""}
+          <div class="qa-checklist-file-actions"><button type="button" class="classic-button" data-close-qa-checklist-review>Close</button><button type="button" class="classic-button" data-download-qa-checklist="${escapeQaChecklistText(item.poNo)}">Download checklist</button></div>
+          ${isQaDecisionPending ? `<div class="qa-decision-footer-actions"><span id="qa-approval-help">${readyToApprove ? "Approved for unpacking selected. Ready to approve." : readyToReject ? "Rejection reason recorded. Ready to reject." : item.qaDecisionChoice === "reject" ? "Enter a mandatory comment before rejecting." : "Select Approved for unpacking or Reject to continue."}</span><span class="qa-decision-footer-buttons"><button type="button" class="classic-button primary" data-qa-modal-approve="${item.poNo}" ${readyToApprove ? "" : "disabled"}>Approve checklist</button><button type="button" class="classic-button danger" data-qa-modal-reject="${item.poNo}" ${readyToReject ? "" : "disabled"}>Reject checklist</button></span></div>` : ""}
         </footer>
       </div>
     </div>
   `;
 }
 
-function downloadApprovedGoodsReceivingChecklist(poNo) {
-  const item = checklistDecisionQueue.find((entry) => entry.poNo === poNo && entry.status === "Approved for unpacking");
+function downloadGoodsReceivingChecklist(poNo) {
+  const item = checklistDecisionQueue.find((entry) => entry.poNo === poNo);
   if (!item) return false;
   const checklistMarkup = renderGoodsReceivingChecklistDocument(item, false);
   const fileContent = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Goods Receiving Check List</title><style>
@@ -7371,14 +7382,23 @@ function refreshQaChecklistReviewState(item) {
   const modal = document.querySelector("#qa-checklist-review-modal");
   if (!modal) return;
   const complete = getQaChecklistReviewComplete(item);
+  const rejectReady = getQaChecklistRejectReady(item);
   const help = modal.querySelector("#qa-approval-help");
   const approve = modal.querySelector("[data-qa-modal-approve]");
-  if (help) help.textContent = complete ? "Approved for unpacking selected. Ready to approve." : "Select Approved for unpacking to continue.";
+  const reject = modal.querySelector("[data-qa-modal-reject]");
+  if (help) help.textContent = complete
+    ? "Approved for unpacking selected. Ready to approve."
+    : rejectReady
+      ? "Rejection reason recorded. Ready to reject."
+      : item.qaDecisionChoice === "reject"
+        ? "Enter a mandatory comment before rejecting."
+        : "Select Approved for unpacking or Reject to continue.";
   if (approve) approve.disabled = !complete;
+  if (reject) reject.disabled = !rejectReady;
 }
 function approveChecklistException(poNo) {
   const item = checklistDecisionQueue.find((entry) => entry.poNo === poNo);
-  if (!item || !getQaChecklistReviewComplete(item)) return false;
+  if (!item || item.status !== "Waiting for QA decision" || !getQaChecklistReviewComplete(item)) return false;
   item.status = "Approved for unpacking";
   item.qaDecision = { outcome: "Approved for unpacking", user: currentLogin?.user || "qa.user", dateTime: getAssemblyAuditTimestamp(), comment: item.qaDecisionComment || "QA reviewed the checklist exception and approved unpacking." };
   const checklistPoNos = getGoodsReceivingChecklistPoNumbers(item);
@@ -7393,6 +7413,27 @@ function approveChecklistException(poNo) {
     exceptionWorkflow.checklistExceptionStatus = "Approved for unpacking";
   }
   selectedChecklistDecisionPo = poNo;
+  return true;
+}
+
+function rejectChecklistException(poNo) {
+  const item = checklistDecisionQueue.find((entry) => entry.poNo === poNo);
+  if (!item || item.status !== "Waiting for QA decision" || !getQaChecklistRejectReady(item)) return false;
+  const rejectionComment = String(item.qaDecisionComment || "").trim();
+  item.status = "Rejected by QA";
+  item.qaDecision = {
+    outcome: "Rejected by QA",
+    user: currentLogin?.user || "qa.user",
+    dateTime: getAssemblyAuditTimestamp(),
+    comment: rejectionComment
+  };
+  getGoodsReceivingChecklistPoNumbers(item).forEach((memberPoNo) => {
+    const workflow = rpPackWorkflows[memberPoNo] || (rpPackWorkflows[memberPoNo] = createPackingWorkflow(memberPoNo));
+    workflow.status = "Rejected by QA";
+    workflow.checklistExceptionStatus = "Rejected by QA";
+    workflow.qaRejectionComment = rejectionComment;
+  });
+  selectedChecklistDecisionPo = null;
   return true;
 }
 
@@ -7454,16 +7495,19 @@ function renderRpPackWork(stage) {
   }
   
   const completedPoKeys = getRpTaskFilteredPoKeys();
-  const waitingQaItems = checklistDecisionQueue.filter((item) => item.status === "Waiting for QA decision");
-  const waitingQaHtml = waitingQaItems.map((item) => {
+  const pendingQaCount = checklistDecisionQueue.filter((item) => item.status === "Waiting for QA decision").length;
+  const qaQueueItems = checklistDecisionQueue.filter((item) => ["Waiting for QA decision", "Rejected by QA"].includes(item.status));
+  const waitingQaHtml = qaQueueItems.map((item) => {
     const exceptionCount = item.failedChecks.length;
+    const isRejected = item.status === "Rejected by QA";
+    const rejectionComment = item.qaDecision?.comment || item.qaDecisionComment || "";
     return `
-      <div class="rp-qa-list-row">
+      <div class="rp-qa-list-row ${isRejected ? "rejected" : ""}">
         <strong class="rp-qa-list-po">${escapeQaChecklistText(item.checklistData?.poNumbers || item.poNo)}</strong>
-        <span class="rp-qa-list-issue"><b>Goods Receiving response: NO</b><small>${escapeQaChecklistText(item.failedChecks.join("; "))}</small></span>
+        <span class="rp-qa-list-issue"><b>${isRejected ? "Rejected by QA" : "Goods Receiving response: NO"}</b><small>${escapeQaChecklistText(isRejected ? `Reason: ${rejectionComment}` : item.failedChecks.join("; "))}</small></span>
         <span class="rp-qa-list-progress"><strong>${exceptionCount}</strong> checklist exceptions</span>
-        <span class="rp-qa-list-status">QA decision required</span>
-        <button class="classic-button primary" type="button" data-qa-view-checklist="${item.poNo}">Review checklist</button>
+        <span class="rp-qa-list-status">${isRejected ? "Rejected — final decision" : "QA decision required"}</span>
+        <button class="classic-button ${isRejected ? "" : "primary"}" type="button" data-qa-view-checklist="${item.poNo}">${isRejected ? "View decision" : "Review checklist"}</button>
       </div>
     `;
   }).join("");
@@ -7488,7 +7532,7 @@ function renderRpPackWork(stage) {
       }).join("")
     : `<div class="rp-dashboard-empty">No PO numbers are waiting for RPi review.</div>`;  const activePo = selectedRpApprovalPo ? rpPackWorkflows[selectedRpApprovalPo] : null;
   if (!activePo) {
-    const totalActiveTasks = completedPoKeys.length + waitingQaItems.length;
+    const totalActiveTasks = completedPoKeys.length + pendingQaCount;
     const activeQueueHtml = rpTaskQueueTab === "qa" ? `
       <section class="rp-task-card-section qa rp-task-tab-panel">
         <div class="rp-qa-decision-list"><div class="rp-qa-list-head"><span>PO Number</span><span>Checklist exception</span><span>Checklist result</span><span>Status</span><span>Action</span></div>${waitingQaHtml || `<div class="rp-dashboard-empty">No checklist exceptions are waiting for QA.</div>`}</div>
@@ -7507,7 +7551,7 @@ function renderRpPackWork(stage) {
       <div class="packing-list-panel rp-task-card-page">
         <div class="rp-task-queue-tabs" role="tablist" aria-label="RPi task queues">
           <button class="${rpTaskQueueTab === "po" ? "active" : ""}" type="button" role="tab" aria-selected="${rpTaskQueueTab === "po"}" data-rp-task-queue-tab="po">PO Work Queue <span>${completedPoKeys.length}</span></button>
-          <button class="${rpTaskQueueTab === "qa" ? "active" : ""}" type="button" role="tab" aria-selected="${rpTaskQueueTab === "qa"}" data-rp-task-queue-tab="qa">QA Decision <span>${waitingQaItems.length}</span></button>
+          <button class="${rpTaskQueueTab === "qa" ? "active" : ""}" type="button" role="tab" aria-selected="${rpTaskQueueTab === "qa"}" data-rp-task-queue-tab="qa">QA Decision <span>${pendingQaCount}</span></button>
         </div>
         <div class="rp-task-tab-content">${activeQueueHtml}</div>
       </div>
@@ -8742,6 +8786,10 @@ function getAssemblyIpcBarChecklist(product) {
   ];
 }
 
+function getAssemblyIpcColumnCount(record) {
+  return Math.max(1, getAssemblyIpcDueCount(record), getAssemblyIpcChecks(record).length, Number(record.ipcRequestedCount || 0));
+}
+
 function showAssemblyIpcDueAlert(product, checkIndex) {
   requestAppConfirmation(
     () => {
@@ -8922,7 +8970,6 @@ function renderAssemblyRoomList() {
             <h2>Assembly Batch Queue</h2>
 
           </div>
-          <div class="assembly-user-chip"><span>${currentLogin ? currentLogin.user : "assembly.room"}</span><small>Assembly Room User</small></div>
         </header>
 
         <div class="assembly-queue-tabs" role="tablist" aria-label="Assembly batch queues">
@@ -9128,8 +9175,9 @@ function renderAssemblyRoomWork(stage) {
   const ipcChecks = getAssemblyIpcChecks(record);
   const ipcBarChecklist = getAssemblyIpcBarChecklist(product);
   const ipcDueCount = getAssemblyIpcDueCount(record);
-  const ipcDisplayCount = Math.max(1, ipcDueCount + (runtime.status === "running" ? 1 : 0), ipcChecks.length);
-  const ipcRows = Array.from({ length: ipcDisplayCount }).map((_, index) => {
+  const ipcDisplayCount = getAssemblyIpcColumnCount(record);
+  const ipcColumns = Array.from({ length: ipcDisplayCount }, (_, index) => index);
+  const ipcEvidenceCells = ipcColumns.map((index) => {
     const check = ipcChecks[index] || {};
     const confirmations = Array.isArray(check.confirmations) ? check.confirmations : [];
     const targetMinutes = getAssemblyIpcTargetMinutes(index);
@@ -9139,38 +9187,29 @@ function renderAssemblyRoomWork(stage) {
     const isDue = index < ipcDueCount;
     const hasProgress = hasPhoto || confirmations.some(Boolean);
     const resultClass = isComplete ? "is-confirmed" : isDue ? (hasProgress ? "is-progress" : "is-due") : "is-upcoming";
-    const resultText = isComplete ? "Completed" : isDue ? (hasProgress ? "In Progress" : "Due") : "Upcoming";
+    const resultText = isComplete ? "Completed" : hasProgress ? "In Progress" : isDue ? "Due" : "Ready";
     const photoAction = hasPhoto
       ? `<span class="assembly-ipc-photo-attached">&#10003; ${htmlSafe(check.photoName)}</span>`
-      : isDue
-        ? `<label class="assembly-evidence-button"><input type="file" accept="image/*" capture="environment" data-assembly-ipc-evidence="${index}" ${tabDisabled("ipc")}><span>Take Picture</span></label>`
-        : `<button class="classic-button assembly-ipc-upcoming-button" type="button" disabled>Not Due</button>`;
+      : `<label class="assembly-evidence-button"><input type="file" accept="image/*" data-assembly-ipc-evidence="${index}" ${tabDisabled("ipc")}><span>Upload Photo</span></label><label class="assembly-evidence-button"><input type="file" accept="image/*" capture="environment" data-assembly-ipc-evidence="${index}" ${tabDisabled("ipc")}><span>Take Picture</span></label>`;
     return `
-      <article class="assembly-ipc-event-card ${resultClass}">
-        <header class="assembly-ipc-event-header">
-          <div><strong>IPC ${index + 1}</strong><span>Target active time ${formatAssemblyIpcTarget(targetMinutes)}</span></div>
+      <article class="assembly-ipc-photo-card">
+          <strong>IPC ${index + 1}</strong>
+          <span>Target ${formatAssemblyIpcTarget(targetMinutes)}</span>
           <span class="assembly-ipc-result ${resultClass}">${resultText}</span>
-        </header>
-        ${isDue || hasProgress ? `
-          <div class="assembly-ipc-bar-checklist" role="group" aria-label="IPC ${index + 1} in-process checks">
-            <div class="assembly-ipc-checklist-heading"><strong>In Process Check</strong><strong>BAR Value</strong><strong>Checked &amp; Confirmed</strong></div>
-            ${ipcBarChecklist.map((item, itemIndex) => `
-              <label class="assembly-ipc-checklist-row ${confirmations[itemIndex] ? "is-checked" : ""}">
-                <span>${htmlSafe(item.label)}</span>
-                <strong>${htmlSafe(item.value)}</strong>
-                <input type="checkbox" data-assembly-ipc-check="${index}" data-assembly-ipc-item="${itemIndex}" ${confirmations[itemIndex] ? "checked" : ""} ${!isDue ? "disabled" : tabDisabled("ipc")}>
-              </label>
-            `).join("")}
-          </div>
-          <footer class="assembly-ipc-event-footer">
             <div><span>Photo Evidence</span>${photoAction}</div>
             <div><span>Confirmed By</span><strong>${check.confirmedBy ? htmlSafe(check.confirmedBy) : "-"}</strong></div>
             <div><span>Confirmed At</span><strong>${check.confirmedAt ? htmlSafe(check.confirmedAt) : "-"}</strong></div>
-          </footer>
-        ` : ""}
       </article>
     `;
   }).join("");
+  const ipcRows = `<div class="assembly-ipc-matrix-scroll"><table class="assembly-ipc-matrix">
+    <thead><tr><th scope="col">In Process Check</th>${ipcColumns.map(index => `<th scope="col">IPC ${index + 1}</th>`).join("")}</tr></thead>
+    <tbody>${ipcBarChecklist.map((item, itemIndex) => `<tr>
+      <th scope="row">${htmlSafe(item.label === "Product Name" ? "Product" : item.label)}${itemIndex === ipcBarChecklist.length - 1 ? "" : ` - <strong>${htmlSafe(item.value)}</strong>`}</th>
+      ${ipcColumns.map(index => `<td><input type="checkbox" aria-label="IPC ${index + 1}: ${htmlSafe(item.label)}" data-assembly-ipc-check="${index}" data-assembly-ipc-item="${itemIndex}" ${ipcChecks[index]?.confirmations?.[itemIndex] ? "checked" : ""} ${tabDisabled("ipc")}></td>`).join("")}
+    </tr>`).join("")}
+    </tbody>
+  </table></div>`;
   const reconRows = renderAssemblyReconciliationRows(record, [qtyReceived, qtyUsed, damages, discrepancyQty], false, tabDisabled("recon"));
 
   return `
@@ -9279,9 +9318,13 @@ function renderAssemblyRoomWork(stage) {
             <section class="assembly-content-card">
               <div class="assembly-section-heading">
                 <div><h3>In Process Checks</h3><p>Confirm the BAR product details and label placement, then capture the IPC picture.</p></div>
-                <div class="assembly-ipc-timing-key"><span>First check: 00:20</span><span>Interval: 00:40</span></div>
+                <div class="assembly-ipc-timing-key"><span>First check: 00:20</span><span>Interval: 00:40</span><button class="classic-button" type="button" data-assembly-add-ipc ${tabDisabled("ipc")}>Add IPC ${ipcDisplayCount + 1}</button>${ipcDisplayCount > Math.max(1, ipcDueCount, ipcChecks.length) ? `<button class="classic-button" type="button" data-assembly-remove-empty-ipc ${tabDisabled("ipc")}>Remove empty IPC ${ipcDisplayCount}</button>` : ""}</div>
               </div>
               <div class="assembly-ipc-event-list">${ipcRows}</div>
+            </section>
+            <section class="assembly-content-card">
+              <div class="assembly-section-heading"><div><h3>Photo Evidence &amp; Confirmation</h3></div></div>
+              <div class="assembly-ipc-photo-grid">${ipcEvidenceCells}</div>
             </section>
           </fieldset>
           ${tabSignoff("ipc", "IPC Photo & In Process Checks")}
@@ -9346,7 +9389,7 @@ function updateAssemblyAvailability() {
     const ipcChecks = getAssemblyIpcChecks(record);
     const ipcChecklistLength = getAssemblyIpcBarChecklist(assemblySelectedProduct).length;
     const ipcComplete = tabName !== "ipc" || (
-      ipcDueCount > 0 && Array.from({ length: ipcDueCount }).every((_, index) => {
+      Array.from({ length: getAssemblyIpcColumnCount(record) }).every((_, index) => {
         const ipcCheck = ipcChecks[index] || {};
         const confirmations = Array.isArray(ipcCheck.confirmations) ? ipcCheck.confirmations : [];
         return Boolean(ipcCheck.photoName) && Array.from({ length: ipcChecklistLength }).every((__, itemIndex) => Boolean(confirmations[itemIndex]));
@@ -9597,7 +9640,7 @@ function signOffAssemblyPage(tabName) {
   const existingRecord = assemblyRecords[batchNumber] || {};
   const auditUser = getAssemblyAuditUser();
   const ipcDueCount = getAssemblyIpcDueCount(existingRecord);
-  const ipcChecks = getAssemblyIpcChecks(existingRecord).map((check, index) => tabName === "ipc" && index < ipcDueCount
+  const ipcChecks = getAssemblyIpcChecks(existingRecord).map((check, index) => tabName === "ipc" && index < getAssemblyIpcColumnCount(existingRecord)
     ? { ...check, confirmedBy: auditUser, confirmedAt: now }
     : check);
   assemblyRecords[batchNumber] = {
@@ -11580,11 +11623,22 @@ function renderQpSelectedDashboard(stage) {
     <div class="qp-review-hero"><h2>QP Release Dashboard - ${htmlSafe(product.batch)}</h2><button class="classic-button qp-review-back" data-qp-back-list>Back to QP List</button></div>
     <div class="qp-digital-summary"><div><strong>9</strong><span>Checks</span></div><div class="reviewed"><strong>${passed}</strong><span>Passed</span></div><div class="issues"><strong>${deviations}</strong><span>Deviations</span></div><div class="qp-digital-progress"><span>${passed} of 9 System Checks Passed</span><i><b style="width:${passed / 9 * 100}%"></b></i></div></div>
     ${deviations || pending ? `<div class="qp-auto-alert" role="alert">${deviations} deviation(s) · ${pending} pending check(s). ${ready ? "All findings accepted by QP. Final approval is available." : "Review or accept each finding below to proceed."}</div>` : ""}
-    <section class="qp-digital-workspace"><aside class="qp-digital-document-list"><div class="qp-digital-panel-title"><strong>Required Documents</strong><span>RPi / Assembly</span></div><div class="qp-digital-list-scroll">${documents.map((doc,index) => `<button class="qp-digital-document-row ${badge(statusFor(doc))} ${selected.id === doc.id ? "selected" : ""}" data-select-qp-document="${doc.id}"><span class="qp-digital-doc-index">${String(index + 1).padStart(2,"0")}</span><span><strong>${htmlSafe(doc.name)}</strong><small>${htmlSafe(doc.group)}</small></span><em>${statusFor(doc)}</em></button>`).join("")}</div></aside>
-    <main class="qp-digital-review-pane"><div class="qp-digital-document-header"><strong>${htmlSafe(selected.name)}</strong><span class="qp-digital-status ${badge(statusFor(selected))}">${statusFor(selected)}</span></div>
-    <dl class="qp-digital-metadata"><div class="qp-digital-file-meta"><dt>File name</dt><dd>${htmlSafe(selected.fileName)}</dd></div><div><dt>Pages</dt><dd>${selected.pages}</dd></div><div><dt>Source</dt><dd>${htmlSafe(selected.group)}</dd></div><div><dt>Evidence</dt><dd>Demo</dd></div><div><dt>System result</dt><dd>${statusFor(selected)}</dd></div><div class="qp-digital-file-action"><button class="classic-button primary" data-view-qp-document="${selected.id}">${selected.id === "ipc-photos" ? "Open Photos" : "Open PDF"}</button></div></dl>
-    <div class="qp-digital-viewer"><div class="qp-digital-pages-strip">${pages}</div></div>
-    <div class="qp-auto-findings">${related.map(check => `<span><strong>${check.status}:</strong> ${htmlSafe(check.detail)}</span>`).join("")}</div></main></section>
+    <section class="qp-dashboard-documents" aria-label="Required document dashboard">
+      <header class="qp-dashboard-section-header">
+        <div><h3>Required Documents</h3><p>${htmlSafe(product.product)} ${htmlSafe(product.strength || "")} &middot; Batch ${htmlSafe(product.batch)}</p></div>
+        <span>${documents.length} documents &middot; Select View to open</span>
+      </header>
+      <div class="qp-dashboard-table-shell">
+        <table class="classic-table qp-dashboard-document-table">
+          <thead><tr><th>No.</th><th>Document / File</th><th>Source</th><th>Checks Performed</th><th>System Result</th><th>Action</th></tr></thead>
+          <tbody>${documents.map((doc, index) => {
+            const documentStatus = statusFor(doc);
+            const documentChecks = (mapping[doc.id] || [8]).map(checkIndex => checks[checkIndex]).filter(Boolean);
+            return `<tr><td>${String(index + 1).padStart(2, "0")}</td><td><strong>${htmlSafe(doc.name)}</strong><small class="qp-dashboard-file-name">${htmlSafe(doc.fileName)}</small></td><td>${htmlSafe(doc.group)}</td><td class="qp-dashboard-checks-performed">${documentChecks.map(check => `<span>${htmlSafe(check.name)}</span>`).join("")}</td><td><span class="qp-dashboard-status ${badge(documentStatus)}">${documentStatus}</span></td><td><button class="classic-button primary" type="button" data-view-qp-document="${doc.id}">View</button></td></tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>
+    </section>
     ${renderQpReferenceComparisons(product)}
     <details class="qp-auto-checks" ${deviations || pending ? "open" : ""}><summary>Automatic Checks — ${passed}/9 passed <small>RPi documents and Assembly IPC photos</small></summary><table class="classic-table qp-system-check-table"><thead><tr><th>Check</th><th>Result</th><th>Findings</th><th>QP Review</th></tr></thead><tbody>${checks.map((check, index) => `<tr class="qp-check-${check.status.toLowerCase()}"><td>${htmlSafe(check.name)}</td><td><strong>${check.status}</strong></td><td>${htmlSafe(check.detail)}</td><td>${check.status === "Passed" ? "No action needed" : getQpCheckOverride(product, check) ? `<strong>Accepted by QP</strong><div>${htmlSafe(getQpCheckOverride(product, check).user)} · ${htmlSafe(getQpCheckOverride(product, check).at)}</div><div>${htmlSafe(getQpCheckOverride(product, check).comment)}</div>` : `<textarea data-qp-override-comment="${index}" aria-label="Optional QP comment for ${htmlSafe(check.name)}" placeholder="Comment (optional)" rows="2"></textarea><button class="classic-button" data-qp-accept-check="${index}">Reviewed — Accept and Proceed</button>`}</td></tr>`).join("")}</tbody></table></details>
     <div class="qp-release-actions qp-dashboard-actions qp-decision-actions qp-review-action-bar"><div class="qp-review-progress">${passed}/9 automatic checks passed · ${acceptedCount} accepted by QP</div><div class="qp-review-action-buttons"><button class="classic-button primary" data-qp-approve-batch ${ready ? "" : "disabled"}>Approve</button><button class="classic-button" data-qp-hold-batch>Hold</button><button class="classic-button" data-qp-banding-batch>Banding</button><button class="classic-button danger" data-qp-reject-batch>Reject</button></div></div>
@@ -11798,7 +11852,7 @@ function renderQpProcess11BarPage(product, editable = false) {
       </section>
       <div class="qp-process11-approval-grid">
         <label>For and on behalf of B&amp;S Healthcare*<input value="${isSigned ? value("qpName") : ""}" readonly></label>
-        <label>Quantity released ${editable ? `<input id="qp-quantity-released" type="number" min="0" step="1" data-qp-process11-input value="${value("quantityReleased")}" ${qpReleaseRecords[product.batch]?.approved ? "readonly" : ""}>` : `<strong>${value("quantityReleased")}</strong>`}</label>
+        <label class="qp-process11-quantity">Quantity released <span class="qp-process11-quantity-value">${editable ? `<input id="qp-quantity-released" type="number" min="0" step="1" data-qp-process11-input value="${value("quantityReleased")}" ${qpReleaseRecords[product.batch]?.approved ? "readonly" : ""}>` : `<strong>${value("quantityReleased")}</strong>`}<em>Excluding 1 retention sample</em></span></label>
         <label>Signature<input value="${isSigned ? value("signedBy", data.qpName) : ""}" readonly></label>
         <label>Date<input value="${isSigned ? value("signedAt") : ""}" readonly></label>
       </div>
@@ -12213,8 +12267,79 @@ function saveQpReleaseLogLegacy() {
   updateQpReleaseAvailability();
 }
 
-function openQpDocumentPreview(documentId) {
+function createQpDownloadPdf(documentRecord, product) {
+  const cleanPdfText = (value) => String(value ?? "").replace(/[^\x20-\x7E]/g, " ").replace(/[\\()]/g, "\\$&");
+  const lines = [
+    documentRecord.name,
+    `File: ${documentRecord.fileName}`,
+    `Batch: ${product.batch}`,
+    `Product: ${product.product}`,
+    `Source: ${documentRecord.group}`,
+    `Reference: ${documentRecord.ref || "-"}`,
+    `Pages recorded: ${documentRecord.pages}`,
+    "Wireframe prototype download"
+  ];
+  const streamLines = ["BT", "/F1 17 Tf", "60 748 Td", `(${cleanPdfText(lines[0])}) Tj`, "/F1 11 Tf"];
+  lines.slice(1).forEach((line) => streamLines.push("0 -25 Td", `(${cleanPdfText(line)}) Tj`));
+  streamLines.push("ET");
+  const stream = streamLines.join("\n");
+  const objects = [
+    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
+    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj",
+    "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
+    `5 0 obj << /Length ${stream.length} >> stream\n${stream}\nendstream\nendobj`
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object) => { offsets.push(pdf.length); pdf += `${object}\n`; });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => { pdf += `${String(offset).padStart(10, "0")} 00000 n \n`; });
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function downloadQpDocument(documentId) {
   if (!qpSelectedProduct) return;
+  const documentRecord = getQpDocumentPack(qpSelectedProduct).find((document) => document.id === documentId);
+  if (!documentRecord) return;
+  const fileName = documentRecord.fileName.toLowerCase().endsWith(".pdf")
+    ? documentRecord.fileName
+    : `${qpSelectedProduct.batch}_${documentRecord.name.replace(/[^a-z0-9]+/gi, "_")}.pdf`;
+  const url = URL.createObjectURL(createQpDownloadPdf(documentRecord, qpSelectedProduct));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  statusMessage.textContent = `${fileName} downloaded.`;
+}
+
+function openQpDocumentPreview(documentId) {
+  renderQpDocumentPreview(documentId);
+  const toolbar = printPreviewBody.querySelector(".preview-toolbar");
+  if (!toolbar || !qpSelectedProduct) return;
+  toolbar.classList.add("qp-document-action-toolbar");
+  const actions = document.createElement("div");
+  actions.className = "qp-document-preview-actions";
+  const download = document.createElement("button");
+  download.type = "button";
+  download.className = "classic-button primary";
+  download.dataset.downloadQpDocument = documentId;
+  download.textContent = "Download";
+  actions.appendChild(download);
+  const close = toolbar.querySelector("[data-close-print-preview]");
+  if (close) close.remove();
+  toolbar.appendChild(actions);
+}
+
+function renderQpDocumentPreview(documentId) {
+  if (!qpSelectedProduct) return;
+  const previewDocument = getQpDocumentPack(qpSelectedProduct).find((document) => document.id === documentId);
+  if (!previewDocument) return;
   const sourceDocument = renderQpSourceDocument(qpSelectedProduct, documentId);
   if (sourceDocument !== null) {
     document.querySelector("#print-preview-title").textContent = getQpDocumentPack(qpSelectedProduct).find(doc => doc.id === documentId).name;
@@ -14745,6 +14870,14 @@ brailleQuantity: row.qty
     return;
   }
 
+  const qaChecklistDownload = event.target.closest("[data-download-qa-checklist]");
+  if (qaChecklistDownload) {
+    if (downloadGoodsReceivingChecklist(qaChecklistDownload.dataset.downloadQaChecklist)) {
+      statusMessage.textContent = "Goods Receiving checklist downloaded.";
+    }
+    return;
+  }
+
   const qaViewChecklist = event.target.closest("[data-qa-view-checklist]");
   if (qaViewChecklist) {
     const poNo = qaViewChecklist.dataset.qaViewChecklist;
@@ -14781,6 +14914,18 @@ brailleQuantity: row.qty
       document.querySelector("#qa-checklist-review-modal")?.remove();
       renderStage("rp-pack");
       statusMessage.textContent = `QA approved PO ${poNo} for unpacking. The decision is now available in Packing List > Checklist decision.`;
+    }
+    return;
+  }
+  const qaModalReject = event.target.closest("[data-qa-modal-reject]");
+  if (qaModalReject) {
+    const poNo = qaModalReject.dataset.qaModalReject;
+    if (rejectChecklistException(poNo)) {
+      document.querySelector("#qa-checklist-review-modal")?.remove();
+      renderStage("rp-pack");
+      statusMessage.textContent = `QA rejected PO ${poNo}. The mandatory rejection comment is shown in the QA Decision queue.`;
+    } else {
+      statusMessage.textContent = "Select Reject and enter a comment before rejecting the checklist.";
     }
     return;
   }
@@ -15329,6 +15474,18 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
     statusMessage.textContent = "Generated PO Packing List download started.";
     closePrintPreview();
     renderStage(currentStageId);
+    return;
+  }
+  if (event.target.closest("[data-assembly-add-ipc], [data-assembly-remove-empty-ipc]")) {
+    if (!assemblySelectedProduct) return;
+    const batch = assemblySelectedProduct.batch;
+    const record = assemblyRecords[batch] || {};
+    if (record.signedTabs?.ipc) return;
+    const count = getAssemblyIpcColumnCount(record);
+    const removing = Boolean(event.target.closest("[data-assembly-remove-empty-ipc]"));
+    if (removing && count <= Math.max(1, getAssemblyIpcDueCount(record), getAssemblyIpcChecks(record).length)) return;
+    assemblyRecords[batch] = { ...record, ipcRequestedCount: count + (removing ? -1 : 1) };
+    renderStage("assembly-room");
     return;
   }
   const modernPillBtn = event.target.closest(".modern-pill-btn");
@@ -16016,6 +16173,12 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
     return;
   }
 
+  const qpDownloadTrigger = event.target.closest("[data-download-qp-document]");
+  if (qpDownloadTrigger) {
+    downloadQpDocument(qpDownloadTrigger.dataset.downloadQpDocument);
+    return;
+  }
+
   if (event.target.closest("[data-view-qp-release-log]")) {
     openQpReleaseLogPreview();
     return;
@@ -16624,7 +16787,10 @@ document.addEventListener("input", (event) => {
   if (event.target.matches("[data-qa-decision-comment]")) {
     const poNo = event.target.dataset.qaDecisionComment;
     const item = checklistDecisionQueue.find((entry) => entry.poNo === poNo);
-    if (item) item.qaDecisionComment = event.target.value;
+    if (item) {
+      item.qaDecisionComment = event.target.value;
+      refreshQaChecklistReviewState(item);
+    }
     return;
   }  const psField = event.target.closest("[data-ps-field]");
   if (psField) {
