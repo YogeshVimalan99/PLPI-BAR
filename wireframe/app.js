@@ -5621,6 +5621,7 @@ function openGoodsInSummaryPdf(poKey) {
 }
 // State variables for Batch Checker module
 let batchCheckerSearch = "";
+let batchCheckerScanText = "";
 let selectedBatchCheckerRowKey = null;
 let batchCheckerSelectedPo = "";
 let batchCheckerDashboardOpen = true;
@@ -5638,6 +5639,7 @@ let batchCheckerPclRegulatoryComments = {}; // rowKey -> comment entered in PCL 
 let selectedBatchCheckerRowIndexForPopup = null; // row being updated with Mfg
 let selectedBatchCheckerRowIndexForSplit = null; // row being split
 let batchCheckerPclPrintMode = "standard";
+let batchCheckerPclClassificationDraft = null;
 let batchCheckerPendingReprint = null;
 let batchCheckerCompletedRows = {};
 let batchCheckerVerificationHistory = {};
@@ -5914,6 +5916,7 @@ function addCompletedLineToBns(row) {
   if (bnsProducts.some(product => product.sourceBatchCheckerRowKey === rowKey)) return;
   bnsProducts.push({
     sourceBatchCheckerRowKey: rowKey, status: "Active", site: row.site || "WHO", country: row.country,
+    coldChain: row.coldChain === "Yes", controlledDrug: row.controlDr === "Yes", controlDr: row.controlDr,
     partNo: row.partNo, product: row.product || row.description || row.foreignName, ecma: row.ecma,
     strength: row.strength, packSize: row.packSize, batch: row.batchNo, expiry: row.expiryDate,
     quantity: row.qty, imp: row.orderNo, invoice: row.invoice || "", description: row.description || row.product,
@@ -6302,13 +6305,14 @@ function getBatchCheckerVerificationItems(row) {
   const mfg = batchCheckerMfgList.find((item) => item.name === row.manufacturer);
   const mfgAddress = mfg ? mfg.address : (row.manufacturer || "Not selected");
   return [
+    { key: "contractSupplier", label: "Contract Supplier", value: `${row.supplier || row.foreignLicense || "-"} / ${row.contract || row.contractSign || row.site || "-"}` },
     { key: "product", label: "Product name", value: row.product || row.description || row.foreignName || "-" },
     { key: "strengthPack", label: "Strength and Pack Size", value: `${row.strength || "-"} / ${row.packSize || "-"}` },
     { key: "ecma", label: "ECMA", value: row.ecma || "-" },
     { key: "sourceCountry", label: "Source Country", value: row.country || "-" },
     { key: "originCountry", label: "Country of origin", value: row.originCountry || row.country || "-" },
     { key: "invoice", label: "Invoice no.", value: row.invoice || "-" },
-    { key: "rawScan", label: "Raw Product Scan", value: row.productId || row.objId || "Available" },
+    { key: "rawScan", label: "Raw Product Scan", value: "" },
     { key: "batch", label: "Batch No.", value: row.batchNo || "-" },
     { key: "expiry", label: "Expiry", value: row.expiryDate || "-" },
     { key: "quantity", label: "Quantity Received", value: row.qty || "-" },
@@ -6316,7 +6320,8 @@ function getBatchCheckerVerificationItems(row) {
     { key: "manufacturer", label: "Manufacturer", value: row.manufacturer || "Not selected" },
     { key: "manufacturerAddress", label: "Manufacturer Address", value: mfgAddress },
     { key: "foreignEcma", label: "Foreign ECMA Holder", value: row.foreignLicense || row.supplier || "-" },
-    { key: "leafletDate", label: "Foreign leaflet date", value: row.foreignLeaflet || "-" }
+    { key: "leafletDate", label: "Foreign leaflet date", value: row.foreignLeaflet || "-" },
+    { key: "packsCondition", label: "All packs are in good condition", value: "" }
   ];
 }
 
@@ -6420,15 +6425,29 @@ function resetBatchCheckerPclAfterEdit(row) {
   return hadWorkflowState;
 }
 
-function renderBatchCheckerFilters() {
+function renderBatchCheckerFilters(rows = []) {
+  const suppliers = [...new Set([...batchCheckerDb.map(row => row.supplier || row.foreignLicense), ...getPackingListRows().map(row => row.suppName)].filter(Boolean))];
+  const products = [...new Set([...batchCheckerDb.map(row => row.product || row.description || row.foreignName), ...getPackingListRows().map(row => row.description)].filter(Boolean))];
+  const contracts = [...new Set([...batchCheckerDb.map(row => row.contract || row.contractSign || row.site), ...getPackingListRows().map(row => row.contract)].filter(Boolean))];
+  const options = (values, selected) => `<option value=""></option>${[...new Set([...values, selected].filter(Boolean))].map(value => `<option value="${htmlSafe(value)}" ${selected === value ? "selected" : ""}>${htmlSafe(value)}</option>`).join("")}`;
+  const choices = values => values.map(value => `<option value="${htmlSafe(value)}"></option>`).join("");
+  const scanned = rows.filter(row => batchCheckerCheckedRows[getBatchCheckerRowKey(row)]).length;
   return `
-    <div class="batchchecker-reference-toolbar batchchecker-one-line-filter batchchecker-search-fields">
-      <label>Supplier : <input data-batchchecker-filter="supplier" value="${htmlSafe(batchCheckerFilters.supplier)}"></label>
-      <label>Invoice No : <input data-batchchecker-filter="invoice" value="${htmlSafe(batchCheckerFilters.invoice)}"></label>
-      <label>Contract Supp : <input data-batchchecker-filter="contract" value="${htmlSafe(batchCheckerFilters.contract)}"></label>
-      <label class="compact-filter-field">IMP / PO No : <input id="batchchecker-po-search" value="${htmlSafe(batchCheckerSearch)}" placeholder="PO number"></label>
-      <label class="compact-filter-field">Batch No : <input data-batchchecker-filter="mfgLot" value="${htmlSafe(batchCheckerFilters.mfgLot)}"></label>
-      <label>Product : <input data-batchchecker-filter="product" value="${htmlSafe(batchCheckerFilters.product)}"></label>
+    <div class="batchchecker-system-scanbar"><strong>Batch Check</strong><input id="batchchecker-scan-input" data-batchchecker-scan-input value="${htmlSafe(batchCheckerScanText)}" aria-label="Scan batch or product"><span>Total Scan : <b id="batchchecker-total-scan">${scanned}</b></span><button class="classic-button" data-batchchecker-clear-scan>Clear</button></div>
+    <div class="batchchecker-system-search">
+      <div class="batchchecker-system-search-left">
+        <label>Supplier : <input list="batchchecker-suppliers" data-batchchecker-filter="supplier" value="${htmlSafe(batchCheckerFilters.supplier)}"><datalist id="batchchecker-suppliers">${choices(suppliers)}</datalist></label>
+        <label>Contract Supp : <input list="batchchecker-contracts" data-batchchecker-filter="contract" value="${htmlSafe(batchCheckerFilters.contract)}"><datalist id="batchchecker-contracts">${choices(contracts)}</datalist></label>
+        <label>Product : <input list="batchchecker-products" data-batchchecker-filter="product" value="${htmlSafe(batchCheckerFilters.product)}"><datalist id="batchchecker-products">${choices(products)}</datalist></label>
+      </div>
+      <div class="batchchecker-system-search-right">
+        <label>Invoice No : <input data-batchchecker-filter="invoice" value="${htmlSafe(batchCheckerFilters.invoice)}"></label>
+        <label>Status : <select data-batchchecker-filter="status">${options(["Awaiting Batch Check", "Verification Issue", "Ready for PCL", "PCL Generated", "Batch Check Complete"], batchCheckerFilters.status)}</select></label>
+        <label>IMP : <input id="batchchecker-po-search" value="${htmlSafe(batchCheckerSearch)}" aria-label="IMP / PO No"></label>
+        <label>Batch No : <input data-batchchecker-filter="mfgLot" value="${htmlSafe(batchCheckerFilters.mfgLot)}"></label>
+        <label>Site : <select data-batchchecker-filter="site">${options(batchCheckerDb.map(row => row.site), batchCheckerFilters.site)}</select></label>
+        <label>Country : <select data-batchchecker-filter="country">${options(batchCheckerDb.map(row => row.country), batchCheckerFilters.country)}</select></label>
+      </div>
       <button class="classic-search-button" type="button" data-batchchecker-search-btn>Search</button>
     </div>
   `;
@@ -6438,6 +6457,8 @@ function renderBatchCheckerWork(stage) {
     return `
       <div class="batchchecker-live-layout">
         ${renderBatchCheckerFilters()}
+        <div class="batchchecker-check-table-wrap detailed-list batchchecker-empty-workspace"><table class="classic-table batchchecker-initial-table"><thead><tr><th>Select</th><th>Manufacturer</th><th>Product Mockup</th><th>Raw Pack Scans</th></tr></thead><tbody></tbody></table></div>
+        <div class="batchchecker-selected-actions"><button class="classic-button primary" id="batchchecker-btn-check" disabled>Verification</button><button class="classic-button primary" id="batchchecker-generate-pcl" disabled>Print PCL</button><button class="classic-button primary" id="batchchecker-final-check" disabled>Batch Check</button><button class="classic-button" id="batchchecker-generate-pcl-cold" disabled>Print PCL Cold Chain Continuation</button><button class="classic-button" id="batchchecker-print-box" disabled>Reprint Box Label</button></div>
       </div>
     `;
   }
@@ -6451,16 +6472,7 @@ function renderBatchCheckerWork(stage) {
     const rowKey = getBatchCheckerRowKey(row);
     const checks = getBatchCheckerLineChecks(row);
     const labelRecord = batchCheckerPrintedLabelRows[rowKey];
-    const verificationRows = [
-      ["Product / description", row.product || row.description, row.description || row.product],
-      ["Strength", row.strength, row.strength],
-      ["Pack size", row.packSize, row.packSize],
-      ["ECMA", row.ecma, row.ecma],
-      ["Batch number", row.batchNo, row.batchNo],
-      ["MFG lot number", getMfgLotNo(row) || "Pending", getMfgLotNo(row) || "Pending"],
-      ["Quantity and boxes", `${row.qty} units / ${row.boxes} boxes`, `${row.qty} units / ${row.boxes} boxes`],
-      ["Expiry and country", `${row.expiryDate} / ${row.country}`, `${row.expiryDate} / ${row.country}`]
-    ];
+    const verificationRows = getBatchCheckerVerificationItems(row).map(item => [item.label, item.value, item.value]);
 
     return `
       <div class="batchchecker-live-layout">
@@ -6560,7 +6572,7 @@ function renderBatchCheckerWork(stage) {
 
   return `
     <div class="batchchecker-live-layout">
-      ${renderBatchCheckerFilters()}
+      ${renderBatchCheckerFilters(rows)}
       <div class="batchchecker-check-table-wrap detailed-list">
         <table class="classic-table batchchecker-dashboard-table batchchecker-product-list">
           <thead><tr><th>Select</th><th>FOREIGN_NAME</th><th>STRENGTH</th><th>PACKSIZE</th><th>ECMA</th><th>BATCHNO</th><th>EXPIRATION</th><th>QUANTITY</th><th>GOODS_IN_BOXES</th><th>Manufacturer</th><th>FOREIGN_ECN</th><th>PARTNO</th><th>IMP</th><th>PRINT_TYPE</th><th>INVOICENO</th><th>INVOICEDATE</th><th>INVOICE_FILE</th><th>Product Mockup</th><th>Raw Pack Scans</th><th>Supplier Declaration</th><th>Temperature Record</th><th>SUPPLIER</th><th>REVIEWDATE</th><th>COUNTRY</th><th>ORIGINCOUNTRY</th><th>ACTION_COUNT</th><th>IFS_PART_NO</th><th>BATCH_CHECKER</th><th>BATCH_CHECK_DATE</th><th>DESCRIPTION</th><th>PROD_STATUS</th><th>STATUS</th><th>WAREHOUSE</th><th>PRODUCT</th><th>PRODUCT_ID</th><th>MFG_ID</th><th>CONTRACT_SIGN</th><th>CONTRACT_STATUS</th><th>CATEGORY</th><th>COMMENTS</th><th>OBJID</th><th>PIOBJID</th><th>PACKING_ID</th><th>SITE</th><th>Cold Chain</th><th>CONTROL_DR</th><th>FOREIGN_LEAFLET</th></tr></thead>
@@ -6731,7 +6743,7 @@ function renderBatchCheckerPclPages(row, isVerified, printMode, regulatoryCommen
   const mfg = batchCheckerMfgList.find(m => m.name === row.manufacturer);
   const mfgAddress = mfg ? mfg.address : (row.manufacturer ? row.manufacturer : "5th km Paiania - Markopoulo, Koropi Attiki, 194 00, Greece");
 
-  const checkDetails = isVerified ? `${isVerified.checker}, ${isVerified.time || "15:45:00"}, ${isVerified.date}` : '';
+  const checkDetails = isVerified ? [isVerified.checker, isVerified.date, isVerified.time].filter(Boolean).join(', ') : '';
   const includeColdContinuation = printMode === "cold-continuation" || row.coldChain === "Yes";
   const totalPages = includeColdContinuation ? 2 : 1;
 
@@ -6775,7 +6787,7 @@ function renderBatchCheckerPclPages(row, isVerified, printMode, regulatoryCommen
   
     <div style="margin-bottom: 15px; font-size: 11px;">
       <p>This continuation page contains temperature log verification for cold chain goods (+2C to +8C) during transit and receipt.</p>
-      <div style="margin-bottom: 10px;">PO Number: <strong>${row.orderNo}</strong> | Batch No: <strong>${row.batchNo}</strong></div>
+      <div style="margin-bottom: 10px;">Batch No: <strong>${row.batchNo}</strong></div>
     </div>
   
     <!-- Temp logs table -->
@@ -6796,7 +6808,7 @@ function renderBatchCheckerPclPages(row, isVerified, printMode, regulatoryCommen
   <td style="border: 1px solid #000; padding: 4px; text-align: center;">LOG-9921</td>
   <td style="border: 1px solid #000; padding: 4px; text-align: center;">3.4 C</td>
   <td style="border: 1px solid #000; padding: 4px; text-align: center;">5.8 C</td>
-  <td style="border: 1px solid #000; padding: 4px; text-align: center;">Yes <input type="checkbox" checked disabled> No <input type="checkbox" disabled></td>
+  <td style="border: 1px solid #000; padding: 4px; text-align: center;">Yes <input type="checkbox" class="pcl-checkbox" data-pcl-check-key="temperatureExcursions"> No <input type="checkbox" disabled></td>
   <td style="border: 1px solid #000; padding: 4px; text-align: center;">${isVerified ? isVerified.checker : 'batch.checker'}</td>
 </tr>
 <tr>
@@ -6813,9 +6825,9 @@ function renderBatchCheckerPclPages(row, isVerified, printMode, regulatoryCommen
     <div style="border: 1px solid #000; padding: 10px; margin-bottom: 20px; font-weight: bold;">
       <div>Cold Chain Checklist:</div>
       <div style="font-weight: normal; margin-top: 8px;">
-<label style="display: block; margin-bottom: 5px; cursor: pointer;"><input type="checkbox" class="pcl-checkbox" style="cursor: pointer;"> Transit Temp graph downloaded and checked</label>
-<label style="display: block; margin-bottom: 5px; cursor: pointer;"><input type="checkbox" class="pcl-checkbox" style="cursor: pointer;"> No alarms or temperature excursions recorded</label>
-<label style="display: block; cursor: pointer;"><input type="checkbox" class="pcl-checkbox" style="cursor: pointer;"> Quarantine status removed and cleared for batching</label>
+<label style="display: block; margin-bottom: 5px; cursor: pointer;"><input type="checkbox" class="pcl-checkbox" data-pcl-check-key="transitGraph"> Transit Temp graph downloaded and checked</label>
+<label style="display: block; margin-bottom: 5px; cursor: pointer;"><input type="checkbox" class="pcl-checkbox" data-pcl-check-key="temperatureExcursions"> No alarms or temperature excursions recorded</label>
+<label style="display: block; cursor: pointer;"><input type="checkbox" class="pcl-checkbox" data-pcl-check-key="quarantineCleared"> Quarantine status removed and cleared for batching</label>
       </div>
     </div>
   
@@ -6882,36 +6894,21 @@ function renderBatchCheckerPclPages(row, isVerified, printMode, regulatoryCommen
   </div>
 
   <!-- Fields with square check boxes on right -->
-  <div style="display: flex; justify-content: space-between; margin-bottom: 12px; gap: 20px;">
+  <div class="pcl-classifications" style="display: flex; justify-content: space-between; margin-bottom: 12px; gap: 20px;">
     <div style="display: flex; align-items: center;">
       <span style="font-weight: bold;">Controlled Drug Product:</span>
-      <span style="width: 30px; height: 18px; border: 1px solid #000; margin-left: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold;">
-${row.controlDr === 'Yes' ? 'X' : ''}
-      </span>
+      <input type="checkbox" class="pcl-classification-checkbox" data-pcl-classification="controlDr" aria-label="Controlled Drug Product" ${row.controlDr === 'Yes' ? 'checked' : ''} style="width:18px;height:18px;margin-left:10px;">
     </div>
     <div style="display: flex; align-items: center;">
       <span style="font-weight: bold;">Cold Chain Product:</span>
-      <span style="width: 30px; height: 18px; border: 1px solid #000; margin-left: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold;">
-${row.coldChain === 'Yes' ? 'X' : ''}
-      </span>
+      <input type="checkbox" class="pcl-classification-checkbox" data-pcl-classification="coldChain" aria-label="Cold Chain Product" ${row.coldChain === 'Yes' ? 'checked' : ''} style="width:18px;height:18px;margin-left:10px;">
     </div>
   </div>
 
   <div class="pcl-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px dotted #ccc; padding-bottom: 4px;">
-    <span class="pcl-label" style="font-weight: bold; width: 140px; flex-shrink: 0;">PO No:</span>
-    <span class="pcl-value" style="flex-grow: 1; border-bottom: 1px solid #000; padding-left: 8px; height: 16px;">${row.orderNo || ''}</span>
-    <input type="checkbox" data-pcl-default-checked="true" class="pcl-checkbox" style="width: 16px; height: 16px; margin-left: 15px; flex-shrink: 0; cursor: pointer;">
-  </div>
-
-  <div class="pcl-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px dotted #ccc; padding-bottom: 4px;">
-    <span class="pcl-label" style="font-weight: bold; width: 140px; flex-shrink: 0;">Supplier Name:</span>
-    <span class="pcl-value" style="flex-grow: 1; border-bottom: 1px solid #000; padding-left: 8px; height: 16px;">${row.supplier || row.foreignLicense || 'Supplier from PO'}</span>
-    <input type="checkbox" data-pcl-default-checked="true" class="pcl-checkbox" style="width: 16px; height: 16px; margin-left: 15px; flex-shrink: 0; cursor: pointer;">
-  </div>
-  <div class="pcl-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px dotted #ccc; padding-bottom: 4px;">
     <span class="pcl-label" style="font-weight: bold; width: 140px; flex-shrink: 0;">Contract Supplier:</span>
-    <span class="pcl-value" style="flex-grow: 1; border-bottom: 1px solid #000; padding-left: 8px; height: 16px;">${row.supplier} / ${row.contract || 'WHO'}</span>
-    <input type="checkbox" data-pcl-default-checked="true" class="pcl-checkbox" style="width: 16px; height: 16px; margin-left: 15px; flex-shrink: 0; cursor: pointer;">
+    <span class="pcl-value" style="flex-grow: 1; border-bottom: 1px solid #000; padding-left: 8px; height: 16px;">${row.supplier || row.foreignLicense || '-'} / ${row.contract || row.contractSign || row.site || '-'}</span>
+    <input type="checkbox" data-pcl-check-key="contractSupplier" class="pcl-checkbox" style="width: 16px; height: 16px; margin-left: 15px; flex-shrink: 0; cursor: pointer;">
   </div>
 
   <div class="pcl-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px dotted #ccc; padding-bottom: 4px;">
@@ -6953,7 +6950,7 @@ ${row.coldChain === 'Yes' ? 'X' : ''}
     <span>Yes</span>
     <input type="checkbox" class="pcl-checkbox" data-pcl-check-key="rawScan" style="width: 16px; height: 16px; cursor: pointer; flex-shrink: 0;">
     <span>No</span>
-    <input type="checkbox" style="width: 16px; height: 16px; cursor: pointer; flex-shrink: 0;">
+    <input type="checkbox" disabled style="width: 16px; height: 16px; flex-shrink: 0;">
     
     <span style="font-weight: bold; margin-left: auto; flex-shrink: 0;">Expiry:</span>
     <span style="border-bottom: 1px solid #000; width: 100px; padding-left: 8px; height: 16px; text-align: center;">${row.expiryDate}</span>
@@ -6972,7 +6969,7 @@ ${row.coldChain === 'Yes' ? 'X' : ''}
     <input type="checkbox" class="pcl-checkbox" data-pcl-check-key="quantity" style="width: 16px; height: 16px; cursor: pointer; flex-shrink: 0;">
     
     <span style="font-weight: bold; margin-left: auto; flex-shrink: 0;">All packs are in good condition</span>
-    <input type="checkbox" data-pcl-default-checked="true" class="pcl-checkbox" style="width: 16px; height: 16px; cursor: pointer; flex-shrink: 0;">
+    <input type="checkbox" data-pcl-check-key="packsCondition" class="pcl-checkbox" style="width: 16px; height: 16px; cursor: pointer; flex-shrink: 0;">
   </div>
 
   <div style="display: flex; align-items: center; margin-bottom: 8px;">
@@ -7058,7 +7055,11 @@ function openGeneratePclPopup(printMode = "standard") {
   const storedPclComment = batchCheckerPclRegulatoryComments[rowKey];
   const pclComment = storedPclComment !== undefined ? storedPclComment : (regulatoryCommentRequired ? "" : (row.comments || ""));
   const isVerified = batchCheckerVerifiedRows[rowKey];
-  const { page1Html, page2Html } = renderBatchCheckerPclPages(row, isVerified, printMode, regulatoryCommentRequired, pclComment, incompleteBatchCheckCount);
+  if (batchCheckerPclClassificationDraft?.rowKey !== rowKey) {
+    batchCheckerPclClassificationDraft = { rowKey, controlDr: row.controlDr === "Yes", coldChain: row.coldChain === "Yes" };
+  }
+  const pclSourceRow = { ...row, controlDr: batchCheckerPclClassificationDraft.controlDr ? "Yes" : "No", coldChain: batchCheckerPclClassificationDraft.coldChain ? "Yes" : "No" };
+  const { page1Html, page2Html } = renderBatchCheckerPclPages(pclSourceRow, isVerified, printMode, regulatoryCommentRequired, pclComment, incompleteBatchCheckCount);
 
   const pclContainer = document.querySelector("#pcl-sheet-container");
   const coldRegulatoryCommentHtml = printMode === "cold-continuation" && regulatoryCommentRequired ? `
@@ -7068,7 +7069,7 @@ function openGeneratePclPopup(printMode = "standard") {
       <div id="batchchecker-pcl-comments" class="comment-required" contenteditable="true" role="textbox" aria-label="PCL comments" data-placeholder="Enter regulatory justification for the incomplete Batch Check">${pclComment || ""}</div>
     </div>
   ` : "";
-  pclContainer.innerHTML = printMode === "cold-continuation" ? `${coldRegulatoryCommentHtml}${page2Html}` : page1Html;
+  pclContainer.innerHTML = printMode === "cold-continuation" ? `${coldRegulatoryCommentHtml}${page2Html}` : `${page1Html}${pclSourceRow.coldChain === "Yes" ? page2Html : ""}`;
   document.querySelector("#generate-pcl-title").textContent = printMode === "cold-continuation" ? "PCL Cold Chain Continuation" : "Product Check Log (PCL) Sheet";
   const printButton = document.querySelector("#pcl-clearance-submit-btn");
   if (printButton) printButton.textContent = printMode === "cold-continuation" ? "Print Cold Chain Continuation" : "Print PCL";
@@ -7079,7 +7080,7 @@ function openGeneratePclPopup(printMode = "standard") {
   );
   document.querySelectorAll("#pcl-sheet-container .pcl-checkbox").forEach((checkbox) => {
     const checkKey = checkbox.dataset.pclCheckKey;
-    checkbox.checked = checkKey ? Boolean(savedCheckMap[checkKey]) : checkbox.dataset.pclDefaultChecked === "true";
+    checkbox.checked = Boolean(checkKey && savedCheckMap[checkKey]);
     checkbox.disabled = true;
   });
   const lineClearance = document.querySelector("#chk-line-clearance");
@@ -11750,7 +11751,9 @@ function renderQpSourceDocument(product, documentId) {
     const values = saved?.checks?.map(check => check.checked) || getBatchCheckerLineChecks(row);
     template.content.querySelectorAll("input").forEach(input => {
       const index = items.findIndex(item => item.key === input.dataset.pclCheckKey);
-      if (index >= 0 ? values[index] : input.dataset.pclDefaultChecked === "true") input.setAttribute("checked", "");
+      const isChecked = index >= 0 ? values[index] : input.dataset.pclClassification ? row[input.dataset.pclClassification] === "Yes" : false;
+      if (isChecked) input.setAttribute("checked", "");
+      else input.removeAttribute("checked");
       input.setAttribute("disabled", "");
     });
     template.content.querySelectorAll("[contenteditable]").forEach(node => node.setAttribute("contenteditable", "false"));
@@ -14294,6 +14297,32 @@ function renderStage(stageId) {
 }
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.matches("[data-batchchecker-scan-input]")) {
+    event.preventDefault();
+    const scanText = event.target.value.trim();
+    if (!scanText) return;
+    const previous = { dashboard: batchCheckerDashboardOpen, po: batchCheckerSelectedPo, filters: { ...batchCheckerFilters } };
+    if (batchCheckerDashboardOpen) {
+      batchCheckerDashboardOpen = false;
+      batchCheckerSelectedPo = "";
+      batchCheckerFilters = { supplier: "", contract: "", product: "", invoice: "", po: "", site: "", status: "", mfgLot: "", country: "" };
+    }
+    const match = getBatchCheckerRows().find(row => [row.batchNo, row.partNo, row.productId, row.objId].some(value => String(value || "").toLowerCase() === scanText.toLowerCase()));
+    if (!match) {
+      batchCheckerDashboardOpen = previous.dashboard;
+      batchCheckerSelectedPo = previous.po;
+      batchCheckerFilters = previous.filters;
+      showSystemMessage("Batch Check", "Product not found", "Search for the product or select its ECMA in Packing List before scanning.");
+      return;
+    }
+    batchCheckerScanText = scanText;
+    batchCheckerSelectedPo = match.orderNo;
+    batchCheckerSearch = match.orderNo;
+    batchCheckerCheckedRows[getBatchCheckerRowKey(match)] = true;
+    selectedBatchCheckerRowKey = getBatchCheckerRows().indexOf(match);
+    renderStage("batch-checker");
+    return;
+  }
   if (event.key === "Enter" && (event.target.id === "batchchecker-po-search" || event.target.matches("[data-batchchecker-filter]"))) {
     event.preventDefault();
     document.querySelector("[data-batchchecker-search-btn]")?.click();
@@ -14743,8 +14772,8 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
   // Batch Checker Clear Scan
   if (event.target.closest("[data-batchchecker-clear-scan]")) {
     batchCheckerCheckedRows = {};
-    batchCheckerSearch = "";
-    batchCheckerFilters = { supplier: "", contract: "", product: "", invoice: "", po: "", site: "", status: "", mfgLot: "", country: "" };
+    batchCheckerScanText = "";
+    selectedBatchCheckerRowKey = null;
     renderStage("batch-checker");
     statusMessage.textContent = "Scans cleared.";
     return;
@@ -14946,7 +14975,12 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
       updatePclSubmissionAvailability();
       return;
     }
+    if (batchCheckerPclClassificationDraft?.rowKey === rowKey) {
+      row.coldChain = batchCheckerPclClassificationDraft.coldChain ? "Yes" : "No";
+      row.controlDr = batchCheckerPclClassificationDraft.controlDr ? "Yes" : "No";
+    }
     const pclBarRecord = capturePclBarRecord(row, rowKey, pclComment, batchCheckerPclPrintMode, incompleteCount);
+    batchCheckerPclClassificationDraft = null;
     document.querySelector("#generate-pcl-modal").classList.add("hidden");
     if (batchCheckerPclPrintMode === "cold-continuation") {
       const existingColdRecord = batchCheckerColdPclPrintedRows[rowKey];
@@ -15007,6 +15041,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
 
   // Generate PCL close
   if (event.target.closest("[data-close-generate-pcl]")) {
+    batchCheckerPclClassificationDraft = null;
     document.querySelector("#generate-pcl-modal").classList.add("hidden");
     batchCheckerActivePclReprintReason = "";
     return;
@@ -16736,6 +16771,15 @@ document.querySelector("#app-confirm-yes").addEventListener("click", confirmAppS
 document.querySelector("#create-bar-yes").addEventListener("click", confirmCreateBar);
 
 document.addEventListener("change", async (event) => {
+  if (event.target.matches("[data-pcl-classification]")) {
+    const row = getBatchCheckerRows()[selectedBatchCheckerRowKey];
+    if (!row || isBatchCheckerLineLocked(row) || batchCheckerPclClassificationDraft?.rowKey !== getBatchCheckerRowKey(row)) return;
+    const field = event.target.dataset.pclClassification;
+    if (!["coldChain", "controlDr"].includes(field)) return;
+    batchCheckerPclClassificationDraft[field] = event.target.checked;
+    if (field === "coldChain") openGeneratePclPopup(batchCheckerPclPrintMode);
+    return;
+  }
   if (event.target.matches("[data-qp-sample-upload]")) {
     if (!qpSelectedProduct) return;
     const batch = qpSelectedProduct.batch;

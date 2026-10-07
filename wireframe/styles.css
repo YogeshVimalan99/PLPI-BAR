@@ -28471,6 +28471,53 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
 }
 
 /* Batch Checker: PO search, verification issues and password-confirmed completion. */
+#module-window.batch-checker-mode .batchchecker-system-scanbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 8px 12px;
+  background: #f0f0f0;
+  border-bottom: 1px solid #b7c9d5;
+  color: #17364d;
+  font: 12px Tahoma, sans-serif;
+}
+#module-window.batch-checker-mode .batchchecker-system-scanbar strong { font-size: 16px; font-weight: 400; }
+#module-window.batch-checker-mode .batchchecker-system-scanbar input { width: 200px; height: 28px; }
+#module-window.batch-checker-mode .batchchecker-system-scanbar .classic-button { min-width: 72px; }
+#module-window.batch-checker-mode .batchchecker-system-search {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.15fr) minmax(410px, 1.25fr) auto;
+  gap: 12px 24px;
+  padding: 12px;
+  border: 1px solid #aebecb;
+  background: #f3f3f3;
+  color: #17364d;
+  font: 12px Tahoma, sans-serif;
+}
+#module-window.batch-checker-mode .batchchecker-system-search-left { display: grid; gap: 8px; }
+#module-window.batch-checker-mode .batchchecker-system-search-right { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+#module-window.batch-checker-mode .batchchecker-system-search label { display: grid; grid-template-columns: 86px minmax(0, 1fr); align-items: center; gap: 6px; white-space: nowrap; }
+#module-window.batch-checker-mode .batchchecker-system-search input,
+#module-window.batch-checker-mode .batchchecker-system-search select { width: 100%; box-sizing: border-box; height: 28px; min-width: 0; background: #fff; border-radius: 2px; }
+#module-window.batch-checker-mode .batchchecker-system-search > button { align-self: start; min-width: 86px; }
+html body #module-window.batch-checker-mode .batchchecker-live-layout .batchchecker-empty-workspace { background: #b3b3b3 !important; }
+#module-window.batch-checker-mode .batchchecker-initial-table { width: 440px !important; max-width: 100%; border-collapse: collapse; font: 11px Tahoma, sans-serif; }
+#module-window.batch-checker-mode .batchchecker-initial-table th { background: #fff !important; border: 1px solid #bdcad5; padding: 8px; text-align: left; }
+#module-window.batch-checker-mode .batchchecker-initial-table th:nth-child(2) { width: 180px; }
+#generate-pcl-modal .confirm-window { width: min(980px, calc(100vw - 40px)) !important; max-width: calc(100vw - 40px); }
+#generate-pcl-modal .confirm-body { display: block; min-width: 0; overflow-x: auto; }
+#generate-pcl-modal #pcl-sheet-container { min-width: 0; max-width: 100%; }
+#generate-pcl-modal .pcl-sheet { width: 100%; box-sizing: border-box; }
+#generate-pcl-modal .pcl-classifications { flex-wrap: wrap; }
+#generate-pcl-modal .pcl-value { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  #module-window.batch-checker-mode .batchchecker-system-search { grid-template-columns: 1fr; gap: 10px; }
+  #module-window.batch-checker-mode .batchchecker-system-search > button { justify-self: end; }
+}
+@media (max-width: 650px) {
+  #module-window.batch-checker-mode .batchchecker-system-search-right { grid-template-columns: 1fr; }
+}
 html body #module-window.batch-checker-mode #stage-work-content > .batchchecker-live-layout {
   display: flex !important;
   flex-direction: column !important;
