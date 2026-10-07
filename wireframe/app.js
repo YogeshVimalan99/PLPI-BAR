@@ -86,17 +86,17 @@ const stages = [
     next: "BNS Batch Add",
     approval: "Batch check verification and PCL generation",
     checks: [
-      "Search the PO to list all products associated to it.",
-      "Select a product line to perform batch checking.",
+      "Enter a PO number and search to load its product lines; there is no PO queue.",
+      "Select a product line and open Verification after its ECMA is selected.",
       "Verify all product and packaging details against the reference sample.",
       "Record manufacturer address details and save.",
-      "Generate the digital PCL sheet and complete line clearance.",
-      "Print carton and box labels after verification."
+      "Save verification and issue comments, then print the PCL with its saved checks.",
+      "Confirm Batch Check with your password to print the box label and send the product to B&S Batch Add."
     ],
     evidence: ["PCL generation", "Verification check", "Line clearance confirmation"],
     controls: [
       "Verification must be recorded for each batch line before label printing.",
-      "Print PCL is required for downstream line clearance.",
+      "Printing PCL alone does not release the product; password-confirmed Batch Check completes the handoff and locks the line.",
       "Digital sign off captures user, date, and time."
     ],
     progress: [40, 25]
@@ -436,7 +436,8 @@ let packingListAuditLog = [];
 let packingListGenerated = false;
 let generatedPackingListSnapshots = {};
 function isPackingListLocked() {
-  return packingListGenerated === true;
+  const poNo = packingListSelectedPo || packingListSearch;
+  return Boolean(poNo && generatedPackingListSnapshots[poNo]?.length);
 }
 let packingListRowsState = null;
 let poPackingListSignoff = null;
@@ -478,6 +479,7 @@ let changeOfPackSizeData = loadChangeOfPackSizeData();
 let pendingStageId = stages[0].id;
 let currentLogin = null;
 let isAuthenticated = false;
+let sessionConfirmationPassword = "password";
 let initialLoginPending = true;
 let signOffRecord = null;
 let barCreatedRecord = null;
@@ -3308,6 +3310,7 @@ function confirmSignoff() {
 
 function submitLogin() {
   const stage = findStage(pendingStageId);
+  sessionConfirmationPassword = document.querySelector("#login-password").value;
   currentLogin = {
     user: document.querySelector("#login-user").value,
     role: stage.role,
@@ -3697,7 +3700,7 @@ function canGeneratePackingList(poNo) {
   if (activeRows.length === 0) return false;
   return activeRows.every(row => {
     const key = getPackingLineKey(row);
-    return packingLabelPrintRecords[key] !== undefined;
+    return isPackingLineEcmaComplete(row) && packingLabelPrintRecords[key] !== undefined;
   });
 }
 
@@ -4309,8 +4312,37 @@ function getLivePackingListRows() {
 function getPackingListRows() {
   if (!packingListRowsState) {
     packingListRowsState = getDefaultPackingListRows().concat(getLivePackingListRows()).map((row, index) => ({ ...row, rowId: `pl-${index + 1}` }));
+    const multiEcmaExample = packingListRowsState.find(row => row.orderNo === "C13719" && row.partNo === "ESLUMEYE30");
+    if (multiEcmaExample) {
+      multiEcmaExample.ecma = "";
+      multiEcmaExample.ecmaOptions = ["ECMA-DEMO-01", "ECMA-DEMO-02", "ECMA-DEMO-03", "ECMA-DEMO-04"];
+    }
+    const ecmaChoicesByLine = new Map(packingListRowsState.map(row => [row.rowId, getProductEcmaOptions(row, packingListRowsState)]));
+    packingListRowsState.forEach(row => {
+      row.ecmaOptions = ecmaChoicesByLine.get(row.rowId);
+      const choices = getProductEcmaOptions(row, packingListRowsState);
+      if (choices.length > 1 && !row.ecmaSelectedByUser) row.ecma = "";
+      else if (choices.length === 1 && !row.ecma) row.ecma = choices[0];
+    });
   }
   return packingListRowsState;
+}
+function getProductEcmaOptions(row, rows = packingListRowsState || []) {
+  const matching = rows.filter(candidate => candidate.partNo && candidate.partNo === row.partNo);
+  const choices = row.ecmaOptions?.length ? row.ecmaOptions : matching.flatMap(candidate => candidate.ecmaOptions || [candidate.ecma]);
+  return [...new Set([...choices, row.ecma].map(value => String(value || "").trim()).filter(Boolean))];
+}
+
+function renderPackingEcmaField(row, isLocked) {
+  const choices = getProductEcmaOptions(row);
+  if (choices.length <= 1) return htmlSafe(row.ecma || "");
+  return `<select class="grid-edit-input packing-ecma-select" data-packing-row-input="ecma" data-packing-row-key="${htmlSafe(getPackingLineKey(row))}" aria-label="ECMA for ${htmlSafe(row.description)}" ${isLocked ? "disabled" : ""}><option value="">Select ECMA</option>${choices.map(value => `<option value="${htmlSafe(value)}" ${row.ecma === value ? "selected" : ""}>${htmlSafe(value)}</option>`).join("")}</select>`;
+}
+
+function isPackingLineEcmaComplete(row) {
+  if (!row || !String(row.ecma || "").trim()) return false;
+  const choices = getProductEcmaOptions(row);
+  return choices.includes(row.ecma) && (choices.length <= 1 || row.ecmaSelectedByUser === true);
 }
 function getPackingLineKey(row) {
   return row.rowId || `${row.orderNo}-${row.lineNo}-${row.partNo}-${row.batchNo || "pending"}`;
@@ -4330,6 +4362,17 @@ function updatePackingRowValue(rowKey, field, value) {
   }
   const row = getPackingListRows().find((item) => getPackingLineKey(item) === rowKey);
   if (!row) return;
+  if (field === "ecma") {
+    if (value && !getProductEcmaOptions(row).includes(value)) return;
+    row.ecmaSelectedByUser = Boolean(value);
+    delete packingLabelPrintRecords[rowKey];
+    batchCheckerDb.filter(line => line.orderNo === row.orderNo && line.partNo === row.partNo && line.batchNo === row.batchNo).forEach(line => {
+      if (isBatchCheckerLineLocked(line)) return;
+      resetBatchCheckerPclAfterEdit(line);
+      line.ecma = value;
+    });
+    selectedBatchCheckerRowKey = null;
+  }
   row[field] = value;
 }
 
@@ -4448,6 +4491,10 @@ function confirmPackingDeleteWithLogin() {
 }
 function printSelectedPoPackingLabels() {
   const selected = getSelectedPackingLineKeys();
+  if (selected.some(key => !getPackingListRows().find(row => getPackingLineKey(row) === key)?.ecma)) {
+    statusMessage.textContent = "Select ECMA for each selected line before verification or label printing.";
+    return;
+  }
   const now = new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
   selected.forEach((key) => {
     const user = currentLogin ? currentLogin.user : "goods.in";
@@ -5192,7 +5239,7 @@ function renderPackingListView(stage, rows, totalQty) {
     <button class="classic-button row-verify-button" type="button" data-pl-verify-print="${key}" ${lockAttr} style="font-size: 10px; padding: 2px 6px; background-color: #1e3a8a; color: white;">Verify</button>
   `}
 </td>
-<td><input class="grid-edit-input packing-comment-input" data-packing-row-input="userComments" data-packing-row-key="${key}" value="${getPackingLineUserComment(row)}" placeholder="Comments" ${readonlyAttr}></td><td>${row.suppName}</td><td>${row.suppCode}</td><td>${printRecord ? `Label printed by ${printRecord.user} at ${printRecord.dateTime}` : row.comments}</td><td>${row.createdBy}</td><td>${row.createdDate}</td><td>${row.foreignName}</td><td>${row.strength}</td><td>${row.packSize}</td><td>${row.country}</td><td>${row.ecma}</td><td>${row.contract}</td><td>${row.barcode}</td><td>${row.validBarcode}</td>
+<td><input class="grid-edit-input packing-comment-input" data-packing-row-input="userComments" data-packing-row-key="${key}" value="${getPackingLineUserComment(row)}" placeholder="Comments" ${readonlyAttr}></td><td>${row.suppName}</td><td>${row.suppCode}</td><td>${printRecord ? `Label printed by ${printRecord.user} at ${printRecord.dateTime}` : row.comments}</td><td>${row.createdBy}</td><td>${row.createdDate}</td><td>${row.foreignName}</td><td>${row.strength}</td><td>${row.packSize}</td><td>${row.country}</td><td>${renderPackingEcmaField(row, isLocked)}</td><td>${row.contract}</td><td>${row.barcode}</td><td>${row.validBarcode}</td>
       </tr>`;
   }).join("")}</tbody>
 </table>
@@ -5592,6 +5639,11 @@ let selectedBatchCheckerRowIndexForPopup = null; // row being updated with Mfg
 let selectedBatchCheckerRowIndexForSplit = null; // row being split
 let batchCheckerPclPrintMode = "standard";
 let batchCheckerPendingReprint = null;
+let batchCheckerCompletedRows = {};
+let batchCheckerVerificationHistory = {};
+let batchCheckerVerificationDraft = null;
+let batchCheckerIssuePendingSave = null;
+let batchCheckerPendingCompletion = null;
 let batchCheckerMfgList = [
   { name: "Boehringer Ingelheim Ellas ...", address: "5th km Paiania - Markopoulo, Koropi Attiki, 194 00, Greece" },
   { name: "Boehringer Ingelheim Phar...", address: "Binger Strasse 173, D-55216 Ingelheim am Rhein, Germany" },
@@ -5781,6 +5833,159 @@ function getBatchCheckerRowKey(row) {
   return row ? `${row.orderNo}_${row.batchNo}` : "";
 }
 
+function isBatchCheckerLineLocked(row) {
+  return Boolean(row && batchCheckerCompletedRows[getBatchCheckerRowKey(row)]);
+}
+
+function canCompleteBatchCheckerLine(row) {
+  if (!row || isBatchCheckerLineLocked(row) || !row.ecma || !hasBatchCheckerSavedVerification(row)) return false;
+  const saved = batchCheckerVerifiedRows[getBatchCheckerRowKey(row)];
+  return Boolean(saved?.checks?.every(Boolean) && isBatchCheckerPclComplete(row));
+}
+
+function getBatchVerificationHistory(product) {
+  return Object.values(batchCheckerVerificationHistory).flat().filter(entry => entry.batch === (product.batch || product.batchNo) && (!product.imp && !product.orderNo || entry.poNo === (product.imp || product.orderNo)));
+}
+
+function renderBatchVerificationSummary(product) {
+  const history = getBatchVerificationHistory(product);
+  return `<section class="batchchecker-summary-section"><h3>Batch Verification History</h3><table class="classic-table"><thead><tr><th>PO / Batch</th><th>Decision</th><th>Comment</th><th>User</th><th>Date / Time</th></tr></thead><tbody>${history.map(entry => `<tr><td>${htmlSafe(entry.poNo)} / ${htmlSafe(entry.batch)}</td><td>${htmlSafe(entry.outcome)}</td><td>${htmlSafe(entry.comment || "—")}</td><td>${htmlSafe(entry.user)}</td><td>${htmlSafe(entry.dateTime)}</td></tr>`).join("") || '<tr><td colspan="5">No verification history recorded.</td></tr>'}</tbody></table></section>`;
+}
+
+function saveBatchCheckerVerification(row, checks, comment) {
+  if (!row || isBatchCheckerLineLocked(row) || !row.ecma) return false;
+  if (checks.length !== getBatchCheckerVerificationItems(row).length) return false;
+  const complete = checks.every(Boolean);
+  const note = String(comment || "").trim();
+  if (!complete && !note) return false;
+  const rowKey = getBatchCheckerRowKey(row);
+  // A new save replaces current verification/PCL eligibility; history remains available.
+  resetBatchCheckerPclAfterEdit(row);
+  batchCheckerDetailChecks[rowKey] = [...checks];
+  const user = currentLogin?.user || "batch.checker";
+  const dateTime = getAssemblyAuditTimestamp();
+  batchCheckerVerifiedRows[rowKey] = { checker: user, date: dateTime, time: "", checks: [...checks], comment: note };
+  batchCheckerPclRegulatoryComments[rowKey] = complete ? note : "";
+  row.verificationComment = note;
+  row.status = complete ? "Verification Saved" : "Verification Issue";
+  row.batchChecker = user;
+  row.batchCheckDate = dateTime;
+  const previousHistory = batchCheckerVerificationHistory[rowKey] || [];
+  const wasIssue = previousHistory.at(-1)?.outcome === "Issue recorded";
+  batchCheckerVerificationHistory[rowKey] = [...previousHistory, { poNo: row.orderNo, batch: row.batchNo, user, dateTime, comment: note, checks: [...checks], outcome: complete ? (wasIssue ? "Corrected and verified" : "Verification saved") : "Issue recorded" }];
+  return true;
+}
+
+function hasCompleteBatchCheckerVerification(row) {
+  if (!row || !hasBatchCheckerSavedVerification(row)) return false;
+  const checks = batchCheckerVerifiedRows[getBatchCheckerRowKey(row)]?.checks;
+  return Boolean(checks?.length === getBatchCheckerVerificationItems(row).length && checks.every(Boolean));
+}
+
+function finishBatchCheckerVerificationSave(row, checks, comment = "") {
+  if (!saveBatchCheckerVerification(row, checks, comment)) return false;
+  batchCheckerVerificationDraft = null;
+  batchCheckerIssuePendingSave = null;
+  document.querySelector("#batchchecker-issue-dialog")?.remove();
+  document.querySelector("#batch-check-verify-modal").classList.add("hidden");
+  renderStage("batch-checker");
+  statusMessage.textContent = checks.every(Boolean)
+    ? "All verification checks saved. Print PCL is available; a PCL comment is optional."
+    : "Verification progress saved. The required issue comment is recorded in Batch Summary. Resume Verification after correction.";
+  return true;
+}
+
+function openBatchCheckerIssueComment(row, checks) {
+  batchCheckerIssuePendingSave = { row, rowKey: getBatchCheckerRowKey(row), checks: [...checks] };
+  document.querySelector("#batchchecker-issue-dialog")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.id = "batchchecker-issue-dialog";
+  dialog.setAttribute("aria-labelledby", "batchchecker-issue-title");
+  dialog.innerHTML = `<div class="internal-title"><span id="batchchecker-issue-title">Comment required</span><button class="close-button" data-cancel-batchchecker-issue>X</button></div><div class="confirm-body"><p>Verification incomplete. Enter a comment.</p><label class="batchchecker-verification-comment"><textarea id="batchchecker-issue-comment" rows="2" placeholder="Enter comment" aria-label="Comment" aria-required="true">${htmlSafe(row.verificationComment || "")}</textarea></label><p id="batchchecker-issue-error" class="batchchecker-error" role="alert"></p><div class="confirm-actions"><button class="classic-button" data-cancel-batchchecker-issue>Cancel</button><button class="classic-button primary" data-save-batchchecker-issue>Save Batch Check</button></div></div>`;
+  const cancelSave = () => { batchCheckerIssuePendingSave = null; dialog.remove(); };
+  dialog.addEventListener("cancel", event => { event.preventDefault(); cancelSave(); });
+  document.body.appendChild(dialog);
+  dialog.showModal();
+  dialog.querySelector("textarea").focus();
+}
+
+function addCompletedLineToBns(row) {
+  const rowKey = getBatchCheckerRowKey(row);
+  if (bnsProducts.some(product => product.sourceBatchCheckerRowKey === rowKey)) return;
+  bnsProducts.push({
+    sourceBatchCheckerRowKey: rowKey, status: "Active", site: row.site || "WHO", country: row.country,
+    partNo: row.partNo, product: row.product || row.description || row.foreignName, ecma: row.ecma,
+    strength: row.strength, packSize: row.packSize, batch: row.batchNo, expiry: row.expiryDate,
+    quantity: row.qty, imp: row.orderNo, invoice: row.invoice || "", description: row.description || row.product,
+    warehouse: row.warehouse || "Q-25-A", pl: row.pl || "18799/3264", productId: row.productId,
+    foreignName: row.foreignName, unitsPerPack: "1", supplierName: row.supplier, supplierInvoice: row.invoice,
+    productIntroduced: row.productIntroduced || "11 Sep 2020", leafletDate: row.leafletDate || "04 Feb 2025",
+    dateRevised: row.dateRevised || "09 Apr 2025", variationInfo: row.variationInfo || "", reviewDate: row.reviewDate,
+    manufLotNo: getMfgLotNo(row), category: row.category || "Relabelling", batchType: "Composite",
+    routeInstruction: "Relabel only", routeType: "Relabelling", leafletRequired: true,
+    leafletQuantity: row.qty, blisterRequired: "Yes", cartonQuantity: "0", brailleRequired: true, brailleQuantity: row.qty,
+    verificationHistory: [...(batchCheckerVerificationHistory[rowKey] || [])]
+  });
+}
+
+function openBatchCheckerCompletion(row) {
+  if (!canCompleteBatchCheckerLine(row)) {
+    statusMessage.textContent = "Save complete Verification and print the PCL before Batch Check.";
+    return;
+  }
+  batchCheckerPendingCompletion = { row, pclRecord: batchCheckerPclGeneratedRows[getBatchCheckerRowKey(row)] };
+  document.querySelector("#batchchecker-completion-modal")?.remove();
+  const modal = document.createElement("div");
+  modal.id = "batchchecker-completion-modal";
+  modal.className = "modal-backdrop";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "batchchecker-completion-title");
+  modal.innerHTML = `<div class="confirm-window"><div class="internal-title"><span id="batchchecker-completion-title">Batch Check</span><button class="close-button" data-close-batchchecker-completion>X</button></div><div class="confirm-body"><label class="batchchecker-password-field">Password<input id="batchchecker-completion-password" type="password" value="${htmlSafe(sessionConfirmationPassword)}" autocomplete="current-password"></label><p id="batchchecker-completion-error" class="batchchecker-error" role="alert"></p><div class="confirm-actions"><button class="classic-button" data-close-batchchecker-completion>Cancel</button><button class="classic-button primary" data-confirm-batchchecker-completion>Confirm Batch Check</button></div></div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelector("input").focus();
+  modal.querySelector("input").select();
+}
+
+function completeBatchCheckerLine(password) {
+  const pending = batchCheckerPendingCompletion;
+  const row = pending?.row;
+  const error = document.querySelector("#batchchecker-completion-error");
+  if (!password || password !== sessionConfirmationPassword) {
+    if (error) error.textContent = "Password does not match. Please try again.";
+    return false;
+  }
+  const key = getBatchCheckerRowKey(row);
+  if (!canCompleteBatchCheckerLine(row) || batchCheckerPclGeneratedRows[key] !== pending.pclRecord) {
+    if (error) error.textContent = "The verification/PCL has changed. Review the line before confirming.";
+    return false;
+  }
+  const record = markBatchCheckerLabelPrinted(row, "Box Label");
+  addCompletedLineToBns(row);
+  batchCheckerCompletedRows[key] = { user: record.user, dateTime: record.dateTime };
+  batchCheckerPclGeneratedRows[key].addedToBns = true;
+  row.status = "Batch Check Complete";
+  document.querySelector("#batchchecker-completion-modal")?.remove();
+  batchCheckerPendingCompletion = null;
+  renderStage("batch-checker");
+  printBatchCheckerBoxLabel(row);
+  statusMessage.textContent = `Box label printed for ${row.batchNo}. Product added to B&S Batch Add; the line is locked.`;
+  return true;
+}
+
+function printBatchCheckerBoxLabel(row) {
+  document.querySelector("#batchchecker-direct-print")?.remove();
+  const printContent = document.createElement("div");
+  printContent.id = "batchchecker-direct-print";
+  printContent.innerHTML = `<section class="batchchecker-box-label"><h2>${htmlSafe(row.product || row.description || row.foreignName)}</h2><table>${[["PO", row.orderNo], ["Batch No", row.batchNo], ["Expiry Date", row.expiryDate], ["Quantity", row.qty], ["Boxes", row.boxes], ["ECMA", row.ecma]].map(([label, value]) => `<tr><th>${label}</th><td>${htmlSafe(value)}</td></tr>`).join("")}</table></section>`;
+  document.body.appendChild(printContent);
+  document.body.classList.add("batchchecker-box-print");
+  try { window.print(); } finally {
+    document.body.classList.remove("batchchecker-box-print");
+    printContent.remove();
+  }
+}
+
 function markBatchCheckerLabelPrinted(row, type = "Box Label", reprintReason = "") {
   if (!row) return null;
   const rowKey = getBatchCheckerRowKey(row);
@@ -5823,6 +6028,7 @@ function filterBatchCheckerRows(rows) {
   const mfgLotSearch = String(batchCheckerFilters.mfgLot || "").trim().toLowerCase();
   const countrySearch = String(batchCheckerFilters.country || "").trim().toLowerCase();
   return rows.filter((row) => {
+    if (!String(row.ecma || "").trim()) return false;
     const currentStatus = getBatchCheckerStatusText(row);
     return (!supplierSearch || String(row.supplier || row.foreignLicense || "").toLowerCase().includes(supplierSearch)) &&
       (!contractSearch || String(row.contractSign || row.contractStatus || "").toLowerCase().includes(contractSearch)) &&
@@ -5831,22 +6037,41 @@ function filterBatchCheckerRows(rows) {
       (!siteSearch || String(row.site || "").toLowerCase().includes(siteSearch)) &&
       (!poSearch || String(row.orderNo || "").toLowerCase().includes(poSearch)) &&
       (!statusSearch || currentStatus.toLowerCase().includes(statusSearch)) &&
-      (!mfgLotSearch || String(getMfgLotNo(row) || "").toLowerCase().includes(mfgLotSearch)) &&
+      (!mfgLotSearch || [row.batchNo, getMfgLotNo(row)].some(value => String(value || "").toLowerCase().includes(mfgLotSearch))) &&
       (!countrySearch || String(row.country || row.originCountry || "").toLowerCase().includes(countrySearch));
   });
 }
 function getBatchCheckerRows() {
-  const filtered = batchCheckerDb.filter(row => !batchCheckerSelectedPo || row.orderNo === batchCheckerSelectedPo);
-  if (filtered.length > 0) return filterBatchCheckerRows(filtered);
+  if (batchCheckerDashboardOpen && !batchCheckerSelectedPo) return [];
+  const packingRows = getPackingListRows();
+  // Packing List owns the ECMA selection. Never display a stale/default ECMA for an unselected source line.
+  batchCheckerDb.forEach(line => {
+    if (isBatchCheckerLineLocked(line)) return;
+    const source = packingRows.find(row => line.sourcePackingLineKey
+      ? getPackingLineKey(row) === line.sourcePackingLineKey
+      : row.orderNo === line.orderNo && row.partNo === line.partNo && row.batchNo === line.batchNo);
+    if (!source) return;
+    line.sourcePackingLineKey = getPackingLineKey(source);
+    const selectedEcma = isPackingLineEcmaComplete(source) ? source.ecma : "";
+    if (line.ecma !== selectedEcma) {
+      resetBatchCheckerPclAfterEdit(line);
+      line.ecma = selectedEcma;
+      selectedBatchCheckerRowKey = null;
+    }
+  });
   
-  const plRows = getPackingListRows().filter(r => r.orderNo === batchCheckerSelectedPo);
+  const plRows = packingRows.filter(row =>
+    (!batchCheckerSelectedPo || row.orderNo === batchCheckerSelectedPo) && row.batchNo && row.expiryDate && Number(row.qty) > 0 && isPackingLineEcmaComplete(row) &&
+    !batchCheckerDb.some(existing => existing.orderNo === row.orderNo && existing.partNo === row.partNo && existing.batchNo === row.batchNo)
+  );
   if (plRows.length > 0) {
     const mapped = plRows.map(row => ({
+      sourcePackingLineKey: getPackingLineKey(row),
       orderNo: row.orderNo,
       foreignName: row.foreignName || row.description,
       strength: row.strength || "10mg",
       packSize: row.packSize || "28",
-      ecma: row.ecma || "EU/1/10/655/002",
+      ecma: row.ecma || "",
       batchNo: row.batchNo || "VHUN",
       mfgLotNo: getMfgLotNo(row),
       manufLotNo: getMfgLotNo(row),
@@ -5872,8 +6097,8 @@ function getBatchCheckerRows() {
       product: row.description,
       productId: row.productId || "5468",
       mfgId: "0",
-      contractSign: "",
-      contractStatus: "",
+      contractSign: row.contract || "",
+      contractStatus: row.contract || "",
       category: "Relabelling",
       comments: row.comments || "",
       mockup: "Product Mockup",
@@ -5888,9 +6113,8 @@ function getBatchCheckerRows() {
       foreignLeaflet: "04/2022"
     }));
     batchCheckerDb.push(...mapped);
-    return filterBatchCheckerRows(mapped);
   }
-  return filterBatchCheckerRows([]);
+  return filterBatchCheckerRows(batchCheckerDb.filter(row => !batchCheckerSelectedPo || row.orderNo === batchCheckerSelectedPo));
 }
 
 function seedLiveTestingData() {
@@ -6145,6 +6369,8 @@ function areBatchCheckerLineChecksComplete(row) {
 
 function getBatchCheckerStatusText(row) {
   const rowKey = getBatchCheckerRowKey(row);
+  if (isBatchCheckerLineLocked(row)) return "Batch Check Complete";
+  if (row.status === "Verification Issue") return "Verification Issue";
   const pclRecord = batchCheckerPclGeneratedRows[rowKey];
   if (pclRecord?.incompleteRegulatoryReviewCopy) return "Incomplete Regulatory Review";
   if (isBatchCheckerPclComplete(row)) return "PCL Generated";
@@ -6165,7 +6391,7 @@ function hasBatchCheckerSavedVerification(row) {
 }
 
 function resetBatchCheckerPclAfterEdit(row) {
-  if (!row) return false;
+  if (!row || isBatchCheckerLineLocked(row)) return false;
   const rowKey = getBatchCheckerRowKey(row);
   const pclRecord = batchCheckerPclGeneratedRows[rowKey];
   const hadWorkflowState = Boolean(
@@ -6196,56 +6422,22 @@ function resetBatchCheckerPclAfterEdit(row) {
 
 function renderBatchCheckerFilters() {
   return `
-    <div class="batchchecker-reference-toolbar batchchecker-one-line-filter">
-      <label>Supplier : <input value=""></label>
-      <label>Invoice No : <input data-batchchecker-filter="po" value="${batchCheckerFilters.po}"></label>
-      <label>Contract Supp : <input value=""></label>
-      <label class="compact-filter-field">IMP : <input value="${batchCheckerSelectedPo || ""}" readonly></label>
-      <label class="compact-filter-field">Batch No : <input data-batchchecker-filter="mfgLot" value="${batchCheckerFilters.mfgLot}"></label>
-      <label>Product : <input data-batchchecker-filter="product" value="${batchCheckerFilters.product}"></label>
-      <button class="classic-button small" type="button" data-batchchecker-search-btn>Search</button>
+    <div class="batchchecker-reference-toolbar batchchecker-one-line-filter batchchecker-search-fields">
+      <label>Supplier : <input data-batchchecker-filter="supplier" value="${htmlSafe(batchCheckerFilters.supplier)}"></label>
+      <label>Invoice No : <input data-batchchecker-filter="invoice" value="${htmlSafe(batchCheckerFilters.invoice)}"></label>
+      <label>Contract Supp : <input data-batchchecker-filter="contract" value="${htmlSafe(batchCheckerFilters.contract)}"></label>
+      <label class="compact-filter-field">IMP / PO No : <input id="batchchecker-po-search" value="${htmlSafe(batchCheckerSearch)}" placeholder="PO number"></label>
+      <label class="compact-filter-field">Batch No : <input data-batchchecker-filter="mfgLot" value="${htmlSafe(batchCheckerFilters.mfgLot)}"></label>
+      <label>Product : <input data-batchchecker-filter="product" value="${htmlSafe(batchCheckerFilters.product)}"></label>
+      <button class="classic-search-button" type="button" data-batchchecker-search-btn>Search</button>
     </div>
   `;
 }
 function renderBatchCheckerWork(stage) {
-  const approvedPoKeys = getRpApprovedPoKeysForBatchChecker();
-  const activePoKeys = approvedPoKeys.filter((poNo) => {
-    const summary = getBatchCheckerPoSummary(poNo);
-    return summary.rows.length > 0;
-  });
-
   if (batchCheckerDashboardOpen) {
-    const poRows = activePoKeys.map((poNo) => {
-      const po = rpPackWorkflows[poNo] || { poNo };
-      const summary = getBatchCheckerPoSummary(poNo);
-      return `
-        <tr class="clickable-row" data-batchchecker-open-po="${poNo}" title="Open PO ${poNo}">
-          <td><strong>${poNo}</strong></td>
-          <td>${po.supplier || summary.rows[0]?.supplier || "Supplier from PO"}</td>
-          <td class="batchchecker-summary-list" title="${summary.invoices.join(", ")}">${summary.invoices.length ? summary.invoices.join(", ") : "-"}</td>
-          <td class="batchchecker-summary-list" title="${summary.products.join(", ")}">${summary.products.length ? summary.products.join(", ") : "-"}</td>
-          <td class="batchchecker-summary-list" title="${summary.batches.join(", ")}">${summary.batches.length ? summary.batches.join(", ") : "Pending"}</td>
-          <td><strong>${summary.totalQty}</strong></td>
-          <td>${summary.totalBoxes}</td>
-        </tr>
-      `;
-    }).join("");
-
     return `
       <div class="batchchecker-live-layout">
-        <div class="batchchecker-live-header">
-          <div>
-            <h3 class="batchchecker-po-heading">Batch Checker - RPi Approved PO List</h3>
-            
-          </div>
-        </div>
         ${renderBatchCheckerFilters()}
-        <div class="batchchecker-list-wrap">
-          <table class="batchchecker-po-list">
-            <thead><tr><th>PO</th><th>Supplier</th><th>Invoice</th><th>Product</th><th>Batch No</th><th>Quantity</th><th>Boxes</th></tr></thead>
-            <tbody>${poRows || `<tr><td colspan="7" class="batchchecker-empty-state">No RPi approved POs are available yet. Complete RPi Approval first.</td></tr>`}</tbody>
-          </table>
-        </div>
       </div>
     `;
   }
@@ -6272,10 +6464,6 @@ function renderBatchCheckerWork(stage) {
 
     return `
       <div class="batchchecker-live-layout">
-        <div class="batchchecker-live-header">
-          <button class="classic-button" type="button" data-batchchecker-back-dashboard>Back to PO Dashboard</button>
-          <div><h3>Checklist</h3><p>${row.orderNo} / ${row.product || row.description} / ${getMfgLotNo(row) || "MFG lot pending"}</p></div>
-        </div>
         <div class="batchchecker-compare-grid">
           <div><strong>Supplier Packing List</strong><span>${row.supplier}</span><span>${row.product || row.description}</span><span>${row.strength} / ${row.packSize}</span><span>Qty ${row.qty}, Boxes ${row.boxes}</span></div>
           <div><strong>Checklist Data</strong><span>${row.orderNo}</span><span>${row.batchNo}</span><span>${getMfgLotNo(row) || "MFG lot pending"}</span><span>${row.expiryDate} / ${row.country}</span></div>
@@ -6316,9 +6504,10 @@ function renderBatchCheckerWork(stage) {
     const selected = selectedBatchCheckerRowKey === index;
     const scanRef = row.productId || row.objId || index;
     const supplierInvoice = getRpPackCreationDocument(row.orderNo, "supplier-invoice");
+    const locked = isBatchCheckerLineLocked(row);
     return `
-      <tr class="${selected ? "selected-row" : ""} ${lineChecked ? "batchchecker-checked-row" : ""} ${verificationSaved && !isPclGenerated ? "batchchecker-verified-row" : ""} ${isPclGenerated ? "pcl-generated-row" : ""}" data-batchchecker-row-index="${index}">
-        <td class="batchchecker-select-cell"><button class="batchchecker-row-arrow" type="button" data-batchchecker-split="${index}" title="Split batch and enter the new Batch No, Quantity, and Expiry Date">&#9656;</button><input type="checkbox" data-batchchecker-row-select="${index}" ${selected ? "checked" : ""}></td>
+      <tr class="${selected ? "selected-row" : ""} ${lineChecked ? "batchchecker-checked-row" : ""} ${verificationSaved && !isPclGenerated ? "batchchecker-verified-row" : ""} ${isPclGenerated ? "pcl-generated-row" : ""} ${locked ? "batchchecker-completed-row" : ""} ${row.status === "Verification Issue" ? "batchchecker-issue-row" : ""}" data-batchchecker-row-index="${index}">
+        <td class="batchchecker-select-cell"><button class="batchchecker-row-arrow" type="button" data-batchchecker-split="${index}" title="${locked ? "Batch Check complete — line locked" : "Split batch and enter the new Batch No, Quantity, and Expiry Date"}" ${locked ? "disabled" : ""}>&#9656;</button><input type="checkbox" data-batchchecker-row-select="${index}" ${selected ? "checked" : ""}></td>
         <td>${row.foreignName || row.product || row.description || ""}</td>
         <td>${row.strength || ""}</td>
         <td>${row.packSize || ""}</td>
@@ -6327,7 +6516,7 @@ function renderBatchCheckerWork(stage) {
         <td class="batchchecker-readonly-value">${row.expiryDate || ""}</td>
         <td class="batchchecker-readonly-value">${row.qty || ""}</td>
         <td class="batchchecker-readonly-value">${row.boxes || ""}</td>
-        <td class="manufacturer-cell ${row.manufacturer ? "" : "missing-manufacturer"}" data-batchchecker-mfg-click="${index}">${row.manufacturer || "Select manufacturer"}</td>
+        <td class="${locked ? "" : "manufacturer-cell"} ${row.manufacturer ? "" : "missing-manufacturer"}" ${locked ? "" : `data-batchchecker-mfg-click="${index}"`}>${row.manufacturer || "Select manufacturer"}</td>
         <td>${row.foreignEcn || row.foreignLicense || ""}</td>
         <td>${row.partNo || ""}</td>
         <td>${row.imp || row.orderNo || ""}</td>
@@ -6349,7 +6538,7 @@ function renderBatchCheckerWork(stage) {
         <td>${row.batchCheckDate || (batchCheckerVerifiedRows[rowKey] ? batchCheckerVerifiedRows[rowKey].date : "")}</td>
         <td>${row.description || row.product || row.foreignName || ""}</td>
         <td>${row.prodStatus || ""}</td>
-        <td>${isPclGenerated ? "PCL Generated" : (row.status || getBatchCheckerStatusText(row))}</td>
+        <td>${locked ? "Batch Check Complete" : isPclGenerated ? "PCL Printed — awaiting Batch Check" : (row.status || getBatchCheckerStatusText(row))}</td>
         <td>${row.warehouse || ""}</td>
         <td>${row.product || row.description || row.foreignName || ""}</td>
         <td>${row.productId || ""}</td>
@@ -6357,7 +6546,7 @@ function renderBatchCheckerWork(stage) {
         <td>${row.contractSign || ""}</td>
         <td>${row.contractStatus || ""}</td>
         <td>${row.category || ""}</td>
-        <td>${row.comments || ""}</td>
+        <td>${htmlSafe(row.verificationComment || row.comments || "")}</td>
         <td>${row.objId || ""}</td>
         <td>${row.piObjId || ""}</td>
         <td>${row.packingId || ""}</td>
@@ -6371,11 +6560,7 @@ function renderBatchCheckerWork(stage) {
 
   return `
     <div class="batchchecker-live-layout">
-      <div class="batchchecker-live-header">
-        <button class="classic-button" type="button" data-batchchecker-back-list>Back to Approved PO List</button>
-        <div><h3>PO Dashboard - ${batchCheckerSelectedPo}</h3></div>
-      </div>
-
+      ${renderBatchCheckerFilters()}
       <div class="batchchecker-check-table-wrap detailed-list">
         <table class="classic-table batchchecker-dashboard-table batchchecker-product-list">
           <thead><tr><th>Select</th><th>FOREIGN_NAME</th><th>STRENGTH</th><th>PACKSIZE</th><th>ECMA</th><th>BATCHNO</th><th>EXPIRATION</th><th>QUANTITY</th><th>GOODS_IN_BOXES</th><th>Manufacturer</th><th>FOREIGN_ECN</th><th>PARTNO</th><th>IMP</th><th>PRINT_TYPE</th><th>INVOICENO</th><th>INVOICEDATE</th><th>INVOICE_FILE</th><th>Product Mockup</th><th>Raw Pack Scans</th><th>Supplier Declaration</th><th>Temperature Record</th><th>SUPPLIER</th><th>REVIEWDATE</th><th>COUNTRY</th><th>ORIGINCOUNTRY</th><th>ACTION_COUNT</th><th>IFS_PART_NO</th><th>BATCH_CHECKER</th><th>BATCH_CHECK_DATE</th><th>DESCRIPTION</th><th>PROD_STATUS</th><th>STATUS</th><th>WAREHOUSE</th><th>PRODUCT</th><th>PRODUCT_ID</th><th>MFG_ID</th><th>CONTRACT_SIGN</th><th>CONTRACT_STATUS</th><th>CATEGORY</th><th>COMMENTS</th><th>OBJID</th><th>PIOBJID</th><th>PACKING_ID</th><th>SITE</th><th>Cold Chain</th><th>CONTROL_DR</th><th>FOREIGN_LEAFLET</th></tr></thead>
@@ -6383,11 +6568,11 @@ function renderBatchCheckerWork(stage) {
         </table>
       </div>
       <div class="batchchecker-selected-actions">
-        ${selectedRow ? `<span>Selected: ${selectedRow.product || selectedRow.description || selectedRow.batchNo}</span>` : ""}
-        <button class="classic-button primary" type="button" id="batchchecker-btn-check">Batch Check</button>
+        <button class="classic-button primary" type="button" id="batchchecker-btn-check">Verification</button>
         <button class="classic-button primary" type="button" id="batchchecker-generate-pcl">${selectedRow && batchCheckerPclGeneratedRows[getBatchCheckerRowKey(selectedRow)] ? "Reprint PCL" : "Print PCL"}</button>
+        <button class="classic-button primary" type="button" id="batchchecker-final-check">Batch Check</button>
         <button class="classic-button" type="button" id="batchchecker-generate-pcl-cold">${selectedRow && batchCheckerColdPclPrintedRows[getBatchCheckerRowKey(selectedRow)] ? "Reprint PCL Cold Chain Continuation" : "Print PCL Cold Chain Continuation"}</button>
-        <button class="classic-button" type="button" id="batchchecker-print-box">${selectedRow && batchCheckerPrintedLabelRows[getBatchCheckerRowKey(selectedRow)] ? "Reprint Box Label" : "Print Box Label"}</button>
+        <button class="classic-button" type="button" id="batchchecker-print-box">Reprint Box Label</button>
       </div>
     </div>
   `;
@@ -6396,22 +6581,28 @@ function updateBatchCheckerAvailability() {
   const rows = getBatchCheckerRows();
   const row = selectedBatchCheckerRowKey !== null ? rows[selectedBatchCheckerRowKey] : null;
   const rowKey = row ? getBatchCheckerRowKey(row) : "";
-  const verificationSaved = hasBatchCheckerSavedVerification(row);
+  const verificationSaved = hasCompleteBatchCheckerVerification(row);
+  const locked = isBatchCheckerLineLocked(row);
   const standardPclButton = document.querySelector("#batchchecker-generate-pcl");
   const coldPclButton = document.querySelector("#batchchecker-generate-pcl-cold");
   if (standardPclButton) {
-    standardPclButton.disabled = !verificationSaved;
-    standardPclButton.title = verificationSaved ? "Open PCL preview" : "Save Product Verification through Save Batch Check first.";
+    standardPclButton.disabled = !verificationSaved || locked;
+    standardPclButton.title = verificationSaved ? "Open PCL preview" : "Complete all verification checks and save Batch Check first.";
   }
   if (coldPclButton) {
-    coldPclButton.disabled = !verificationSaved;
+    coldPclButton.disabled = !verificationSaved || locked;
     coldPclButton.title = verificationSaved
       ? "Open PCL cold chain continuation preview"
-      : "Save Product Verification through Save Batch Check first.";
+      : "Complete all verification checks and save Batch Check first.";
   }
-  document.querySelectorAll("#batchchecker-btn-check, #batchchecker-print-box, #batchchecker-detail-print-label").forEach((button) => {
-    button.disabled = !row;
-  });
+  const verificationButton = document.querySelector("#batchchecker-btn-check");
+  if (verificationButton) {
+    verificationButton.disabled = !row || locked || !String(row.ecma || "").trim();
+    verificationButton.title = locked ? "Batch Check complete — line locked" : !row?.ecma ? "Select ECMA in Packing List before verification." : "Verify the product details";
+  }
+  const finalButton = document.querySelector("#batchchecker-final-check");
+  if (finalButton) finalButton.disabled = !canCompleteBatchCheckerLine(row);
+  document.querySelectorAll("#batchchecker-print-box, #batchchecker-detail-print-label").forEach(button => button.disabled = !locked);
 }
 function openBatchCheckerDocumentViewer(row, documentType) {
   const title = documentType === "temperature" ? "Temperature Record" : "Supplier Declaration";
@@ -6461,6 +6652,7 @@ function openSplitBatchPopup(idx) {
   selectedBatchCheckerRowIndexForSplit = idx;
   const rows = getBatchCheckerRows();
   const row = rows[idx];
+  if (!row || isBatchCheckerLineLocked(row)) return;
   document.querySelector("#split-batch-no").value = "";
   document.querySelector("#split-qty").value = row.qty;
   document.querySelector("#split-exp").value = row.expiryDate;
@@ -6475,12 +6667,17 @@ function openBatchCheckVerifyPopup() {
     return;
   }
 
+  if (isBatchCheckerLineLocked(row) || !String(row.ecma || "").trim()) {
+    statusMessage.textContent = "Select ECMA before Verification. Completed lines are locked.";
+    return;
+  }
   const items = getBatchCheckerVerificationItems(row);
   const checks = getBatchCheckerLineChecks(row);
+  batchCheckerVerificationDraft = { rowKey: getBatchCheckerRowKey(row), checks: [...checks] };
   const modal = document.querySelector("#batch-check-verify-modal");
   const body = modal.querySelector(".confirm-body");
   const title = modal.querySelector("#batch-check-verify-title");
-  if (title) title.textContent = "Batch Check - Product Verification";
+  if (title) title.textContent = "Product Verification";
 
   body.innerHTML = `
     <h3 style="margin-bottom: 8px;">Checklist</h3>
@@ -6510,7 +6707,7 @@ function updatePclSubmissionAvailability() {
   if (!submitBtn || !row) return;
 
   const checks = getBatchCheckerLineChecks(row);
-  const verificationSaved = hasBatchCheckerSavedVerification(row);
+  const verificationSaved = hasCompleteBatchCheckerVerification(row);
   const incompleteCount = checks.filter((checked) => !checked).length;
   const commentEditor = document.querySelector("#batchchecker-pcl-comments");
   const comment = String(commentEditor ? commentEditor.textContent : row.comments || "").trim();
@@ -6520,7 +6717,7 @@ function updatePclSubmissionAvailability() {
 
   submitBtn.disabled = !verificationSaved || missingRequiredComment;
   submitBtn.title = !verificationSaved
-    ? "Save Product Verification through Save Batch Check before printing."
+    ? "Complete all verification checks and save Batch Check before printing."
     : missingRequiredComment
       ? "Enter a regulatory comment explaining the incomplete Batch Check before printing."
       : "Ready to print PCL";
@@ -6850,8 +7047,8 @@ function openGeneratePclPopup(printMode = "standard") {
   }
   
   const rowKey = getBatchCheckerRowKey(row);
-  if (!hasBatchCheckerSavedVerification(row)) {
-    statusMessage.textContent = "Save Product Verification through Save Batch Check before opening the PCL preview.";
+  if (isBatchCheckerLineLocked(row) || !hasCompleteBatchCheckerVerification(row)) {
+    statusMessage.textContent = "Complete all verification checks and save Batch Check before opening the PCL preview.";
     updateBatchCheckerAvailability();
     return;
   }
@@ -7974,6 +8171,7 @@ function printPackingLabel(lineKey) {
   const now = new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const user = currentLogin ? currentLogin.user : "goods.in";
   const row = getPackingListRows().find((item) => getPackingLineKey(item) === lineKey);
+  if (!row?.ecma) { statusMessage.textContent = "Select ECMA before verification or label printing."; return; }
   packingLabelPrintRecords[lineKey] = { user, dateTime: now };
   if (row) recordPackingListAudit(row.orderNo, `Printed the packing label for line ${row.lineNo} â€“ ${row.description}.`, user, now, lineKey);
   statusMessage.textContent = `Packing label printed and signed off for ${lineKey}.`;
@@ -10712,6 +10910,45 @@ function syncQpReleaseLogDecisions(products) {
   if (changed) persistQpReleaseRecords();
 }
 
+function requestQpBatchDecisionConfirmation(decision) {
+  if (!qpSelectedProduct || document.querySelector("#qp-batch-decision-confirm")) return;
+  const batchNumber = qpSelectedProduct.batch;
+  const batch = htmlSafe(batchNumber);
+  const actions = {
+    Hold: { title: "Confirm Hold", prompt: `Put batch ${batch} on hold?`, label: "Yes, Hold" },
+    Banding: { title: "Confirm Banding", prompt: `Send batch ${batch} for banding?`, label: "Yes, Banding" },
+    Rejected: { title: "Confirm Reject", prompt: `Reject batch ${batch}?`, label: "Yes, Reject" }
+  };
+  const action = actions[decision];
+  if (!action) return;
+  const trigger = document.activeElement;
+  const dialog = document.createElement("dialog");
+  dialog.id = "qp-batch-decision-confirm";
+  dialog.className = "qp-log-sign-confirm";
+  dialog.setAttribute("aria-labelledby", "qp-batch-decision-title");
+  dialog.setAttribute("aria-describedby", "qp-batch-decision-message");
+  dialog.innerHTML = `<h3 id="qp-batch-decision-title">${action.title}</h3><p id="qp-batch-decision-message">${action.prompt}</p><div class="confirm-actions"><button type="button" class="classic-button" data-qp-decision-cancel>Cancel</button><button type="button" class="classic-button ${decision === "Rejected" ? "danger" : "primary"}" data-qp-decision-confirm>${action.label}</button></div>`;
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    dialog.close();
+    dialog.remove();
+    if (trigger?.isConnected) trigger.focus();
+  };
+  dialog.querySelector("[data-qp-decision-cancel]").addEventListener("click", dismiss);
+  dialog.addEventListener("cancel", event => { event.preventDefault(); dismiss(); });
+  dialog.querySelector("[data-qp-decision-confirm]").addEventListener("click", () => {
+    if (dismissed) return;
+    const sameBatch = qpSelectedProduct?.batch === batchNumber;
+    dismiss();
+    if (sameBatch) setQpBatchDecision(decision);
+  }, { once: true });
+  document.body.appendChild(dialog);
+  dialog.showModal();
+  dialog.querySelector("[data-qp-decision-cancel]").focus();
+}
+
 function setQpBatchDecision(decision) {
   if (!qpSelectedProduct) return;
   const batchNumber = qpSelectedProduct.batch;
@@ -10872,20 +11109,20 @@ function renderReleaseLogSheetWork() {
     <div class="release-log-sheet-layout">
       <section class="release-log-sheet-window">
         <div class="sub-window-title release-log-current-title">Release Log Sheet</div>
-        <div class="release-log-filter-row">
-          <label>Product :
-            <select data-release-log-product-search>
+        <div class="release-log-filter-row preqp-search-row preqp-list-search-row">
+          <label class="classic-search-label">Product :
+            <select class="classic-search-input" data-release-log-product-search>
               <option value="">All products</option>
               ${productOptions.map((productName) => `<option value="${htmlSafe(productName)}" ${releaseLogProductSearch === productName ? "selected" : ""}>${htmlSafe(productName)}</option>`).join("")}
             </select>
           </label>
-          <label>BNS Batch No :
-            <input data-release-log-batch-search value="${htmlSafe(releaseLogBatchSearch)}">
+          <label class="classic-search-label">BNS Batch No :
+            <input class="classic-search-input" data-release-log-batch-search value="${htmlSafe(releaseLogBatchSearch)}">
           </label>
-          <label>Site :
-            <select data-release-log-site-search><option selected>WHO</option><option>EU</option><option>UK</option></select>
+          <label class="classic-search-label">Site :
+            <select class="classic-search-input" data-release-log-site-search><option selected>WHO</option><option>EU</option><option>UK</option></select>
           </label>
-          <button class="classic-button" type="button" data-release-log-search>Search</button>
+          <button class="classic-search-button" type="button" data-release-log-search>Search</button>
         </div>
         <div class="release-log-grid-shell">
           <table class="classic-table release-log-sheet-table">
@@ -10953,13 +11190,15 @@ function openReleaseLogSheetPreview() {
   };
   document.querySelector("#print-preview-title").textContent = "QP Release Log";
   printPreviewBody.innerHTML = `
-    <div class="release-log-modal-shell">
+    <div class="release-log-modal-shell release-log-generation-preview">
       <div class="preview-toolbar">
         <div><strong>QP Release Log Preview</strong><span>${selectedProducts.length} batch${selectedProducts.length === 1 ? "" : "es"} combined</span></div>
         <button class="classic-button" type="button" data-close-print-preview>Close</button>
-        <button class="classic-button primary" type="button" id="preview-print-button">Confirm</button>
       </div>
       ${renderPreQpReleaseLogPrintPreview(selectedProducts)}
+      <footer class="release-log-modal-actions release-log-generation-actions">
+        <button class="classic-button primary" type="button" id="preview-print-button">Confirm</button>
+      </footer>
     </div>`;
   printPreviewModal.classList.remove("hidden");
   statusMessage.textContent = `${selectedProducts.length} batch${selectedProducts.length === 1 ? "" : "es"} ready on one Release Log Sheet.`;
@@ -11024,20 +11263,15 @@ function renderQpReleaseCardsDashboard() {
   return `
     <div class="qp-rel-dashboard qp-awaiting-cards">
       <section class="qp-rel-dashboard-window">
-        <div class="qp-rel-dashboard-header">
-          <div><h2>QP Release Dashboard</h2><p>Release Log Sheets awaiting QP review</p></div>
+        <div class="qp-rel-filter-row preqp-search-row preqp-list-search-row">
+          <label class="classic-search-label">Rel ID : <input class="classic-search-input" data-qp-id-search value="${htmlSafe(qpIdSearch)}"></label>
+          <label class="classic-search-label">BNS Batch No : <input class="classic-search-input" data-qp-batch-search value="${htmlSafe(qpBatchSearch)}"></label>
+          <button class="classic-search-button" type="button" data-qp-search-button>Search</button>
           <div class="qp-rel-dashboard-summary"><span><strong>${groups.length}</strong> Release IDs</span><span><strong>${totalBatches}</strong> Batches</span></div>
-        </div>
-        <div class="qp-rel-filter-row">
-          <label>Rel ID : <input data-qp-id-search value="${htmlSafe(qpIdSearch)}"></label>
-          <label>BNS Batch No : <input data-qp-batch-search value="${htmlSafe(qpBatchSearch)}"></label>
-          <button class="classic-button" type="button" data-qp-search-button>Search</button>
         </div>
         <div class="qp-rel-card-grid">
           ${groups.map(({ relId, products }) => {
             const status = getQpGroupStatus(products);
-            const originValues = Array.from(new Set(products.map((product) => product.country || product.site || "Not recorded")));
-            const originSummary = originValues.join(", ");
             const groupQuantity = products.reduce((total, product) => total + Number(product.quantity || 0), 0);
             return `<article class="qp-rel-card" data-open-qp-release-id="${htmlSafe(relId)}">
               <div class="qp-rel-card-top">
@@ -11046,10 +11280,9 @@ function renderQpReleaseCardsDashboard() {
               </div>
               <div class="qp-rel-card-meta">
                 <div><span>Batches</span><strong>${products.length}</strong></div>
-                <div><span>Country of Origin</span><strong title="${htmlSafe(originSummary)}">${htmlSafe(originSummary)}</strong></div>
                 <div><span>Total Quantity</span><strong>${htmlSafe(groupQuantity)}</strong></div>
+                <button class="classic-button primary qp-rel-view-button" type="button" data-open-qp-release-id="${htmlSafe(relId)}">View Batch List</button>
               </div>
-              <footer><button class="classic-button primary qp-rel-view-button" type="button" data-open-qp-release-id="${htmlSafe(relId)}">View Batch List</button></footer>
             </article>`;
           }).join("") || `<div class="qp-rel-empty">No Release IDs match the current filters.</div>`}
         </div>
@@ -11066,7 +11299,7 @@ function renderQpReleaseBatchList(stage, relId) {
       <section class="qp-rel-dashboard-window qp-rel-batch-window">
         <div class="qp-rel-batch-header">
           <button class="classic-button" type="button" data-qp-back-release-cards>Back to QP Dashboard</button>
-          <div><span>Release ID</span><h2>${htmlSafe(relId)}</h2><p>${products.length} combined B&amp;S batch${products.length === 1 ? "" : "es"} on this Release Log Sheet</p></div>
+          <div><span>Release ID</span><h2>${htmlSafe(relId)}</h2></div>
           <div class="qp-rel-batch-header-actions">
             <button class="classic-button primary" type="button" data-view-qp-group-release-log="${htmlSafe(relId)}">QP Release Log${releaseLogSigned ? " - Completed" : ""}</button>
             <div class="qp-rel-dashboard-summary"><span><strong>${products.length}</strong> Batches</span><span><strong>${totalQuantity}</strong> Total Qty</span></div>
@@ -11159,9 +11392,8 @@ function renderQpCertifiedCards() {
   qpCertifiedLabelSelection = qpCertifiedLabelSelection.filter(batch => qpCertifiedTab === "Approved" &&
     visibleGroups.some(([, batches]) => batches.some(product => product.batch === batch)));
   return `<div class="qp-rel-dashboard qp-certified-cards"><section class="qp-rel-dashboard-window">
-    <div class="qp-rel-dashboard-header"><div><h2>QP Certified Batches</h2></div><div class="qp-rel-dashboard-summary"><span><strong>${visibleGroups.length}</strong> Release IDs</span><span><strong>${visibleGroups.reduce((sum, [, batches]) => sum + batches.length, 0)}</strong> Batches</span></div></div>
+    <div class="qp-rel-filter-row"><label>Rel ID : <input data-qp-id-search value="${htmlSafe(qpIdSearch)}"></label><label>BNS Batch No : <input data-qp-batch-search value="${htmlSafe(qpBatchSearch)}"></label><button class="classic-button" type="button" data-qp-certified-search>Search</button><div class="qp-rel-dashboard-summary"><span><strong>${visibleGroups.length}</strong> Release IDs</span><span><strong>${visibleGroups.reduce((sum, [, batches]) => sum + batches.length, 0)}</strong> Batches</span></div></div>
     <div class="qp-certified-tabs" role="tablist" aria-label="QP decisions">${["Approved", "Hold", "Banding", "Reject"].map(name => `<button class="classic-button ${qpCertifiedTab === name ? "primary" : ""}" type="button" role="tab" aria-selected="${qpCertifiedTab === name}" data-qp-certified-tab="${name}">${name} (${allProducts.filter(product => getQpCertifiedDecisionTab(product) === name).length})</button>`).join("")}</div>
-    <div class="qp-rel-filter-row"><label>Rel ID : <input data-qp-id-search value="${htmlSafe(qpIdSearch)}"></label><label>BNS Batch No : <input data-qp-batch-search value="${htmlSafe(qpBatchSearch)}"></label><button class="classic-button" type="button" data-qp-certified-search>Search</button></div>
     <div class="qp-rel-card-grid">${visibleGroups.map(([relId, batches]) => `<article class="qp-rel-card">
       <div class="qp-rel-card-top"><div><span>Release ID</span><strong>${htmlSafe(relId || "Not assigned")}</strong></div><em>${qpCertifiedTab}</em></div>
       <div class="qp-certified-card-summary"><div class="qp-certified-card-totals"><strong>${batches.length} batch${batches.length === 1 ? "" : "es"}</strong><span>Total Quantity: <strong>${batches.reduce((sum, product) => sum + Number(product.quantity || 0), 0)}</strong></span></div><span>${htmlSafe(batches.map(product => product.batch).join(", "))}</span></div>
@@ -11491,6 +11723,9 @@ function ensureQpUpstreamDemoRecords(product) {
 
 function renderQpSourceDocument(product, documentId) {
   ensureQpUpstreamDemoRecords(product);
+  if (documentId === "batch-summary" && getBatchVerificationHistory(product).length) {
+    return `<section class="qp-source-sheet"><h2>Batch Summary Record — ${htmlSafe(product.batch)}</h2><p>${htmlSafe(product.product)} · ${htmlSafe(product.strength)} · ${htmlSafe(product.packSize)}</p>${renderBatchVerificationSummary(product)}</section>`;
+  }
   const missing = name => `<section class="qp-source-sheet"><h3>${name}</h3><p>No saved ${name} record is available for batch ${htmlSafe(product.batch)}.</p></section>`;
   if (documentId === "po-packing-list") {
     const snapshots = Object.entries(generatedPackingListSnapshots);
@@ -11563,16 +11798,16 @@ function getQpAutomaticResults(product) {
   ensureQpUpstreamDemoRecords(product);
   const { fixture, supplier, invoice } = getQpDummyEvidence(product);
   const results = [
-    ["Physical sample / IPC product against BAR and Batch Summary", "IPC product, batch, strength, pack size and batch summary agree with BAR."],
-    ["Supplier Invoice against BAR", `RPi invoice supplier ${supplier}; invoice ${invoice}. Both match BAR.`],
-    ["Supplier Declaration against BAR", `RPi supplier declaration present from ${supplier}; matches BAR.`],
-    ["Temperature Record", "RPi temperature record present; no comments, excursions or differences in source evidence."],
-    ["PCL comments and deviations", "Batch Check PCL has no recorded comments or deviations."],
-    ["IPC label references against BAR", "Assembly blister labels, pre-printed carton, leaflet and Braille references match BAR."],
-    ["IPC leaflet licence number against BAR", `IPC leaflet licence ${product.pl || "18799/6001"} matches BAR.`],
-    ["Reconciliation Sheet and counts", "Reconciliation completed; received, used and damaged counts balance; discrepancy zero."],
-    ["Batch Summary deviations", "No unresolved deviations recorded in Batch Summary Record."]
-  ].map(([name, detail]) => ({ name, detail, status: "Passed" }));
+    ["Physical sample / IPC product against BAR and Batch Summary", "Product, batch and quantity", "IPC product, batch, strength, pack size and batch summary agree with BAR."],
+    ["Supplier Invoice against BAR", "Supplier and invoice match", `RPi invoice supplier ${supplier}; invoice ${invoice}. Both match BAR.`],
+    ["Supplier Declaration against BAR", "Supplier declaration match", `RPi supplier declaration present from ${supplier}; matches BAR.`],
+    ["Temperature Record", "Temperature excursions and comments", "RPi temperature record present; no comments, excursions or differences in source evidence."],
+    ["PCL comments and deviations", "PCL checks, comments and deviations", "Batch Check PCL has no recorded comments or deviations."],
+    ["IPC label references against BAR", "Packaging reference match", "Assembly blister labels, pre-printed carton, leaflet and Braille references match BAR."],
+    ["IPC leaflet licence number against BAR", "Leaflet licence match", `IPC leaflet licence ${product.pl || "18799/6001"} matches BAR.`],
+    ["Reconciliation Sheet and counts", "Material quantity reconciliation", "Reconciliation completed; received, used and damaged counts balance; discrepancy zero."],
+    ["Batch Summary deviations", "Unresolved batch deviations", "No unresolved deviations recorded in Batch Summary Record."]
+  ].map(([name, label, detail]) => ({ name, label, detail, status: "Passed" }));
   const fail = (index, detail, status = "Deviation") => Object.assign(results[index], {status, detail});
   const pcl = pclBarRecords[product.batch];
   const pclRow = pcl?.sourceRow || batchCheckerDb.find(row => row.batchNo === product.batch);
@@ -11599,52 +11834,63 @@ function getQpAutomaticResults(product) {
   return results;
 }
 
-function renderQpSelectedDashboard(stage) {
-  const product = qpSelectedProduct;
-  const checks = getQpAutomaticResults(product);
-  const documents = getQpDocumentPack(product);
-  const mapping = { "ipc-photos": [0,5,6], "completed-bar": [0,1,2,5,6], "batch-summary": [0,8], "supplier-invoice": [1], "supplier-declaration": [2], "temperature-record": [3], "pcl": [4], "reconciliation": [7], "approved-artwork": [5] };
-  const statusFor = doc => {
-    const related = (mapping[doc.id] || [8]).map(index => checks[index]);
-    return related.some(check => check.status === "Deviation") ? "Deviation" : related.some(check => check.status === "Pending") ? "Pending" : "Passed";
-  };
-  if (!documents.some(doc => doc.id === qpSelectedDocumentId)) qpSelectedDocumentId = documents[0].id;
-  const selected = documents.find(doc => doc.id === qpSelectedDocumentId);
-  const passed = checks.filter(check => check.status === "Passed").length;
-  const acceptedCount = checks.filter(check => check.status !== "Passed" && getQpCheckOverride(product, check)).length;
-  const ready = areAllQpDashboardDocumentsVerified(product);
-  const deviations = checks.filter(check => check.status === "Deviation").length;
-  const pending = checks.length - passed - deviations;
-  const related = (mapping[selected.id] || [8]).map(index => checks[index]);
-  const evidence = getQpDummyEvidence(product);
-  const badge = status => status === "Passed" ? "reviewed" : status === "Deviation" ? "issue-raised" : "pending";
-  const pages = renderQpSourceDocument(product, selected.id) ?? (selected.id === "completed-bar" ? renderGeneratedBarDocument(product) : selected.id === "ipc-photos" ? Object.entries(evidence.photos).map(([kind, images]) => images.map(photo => `<div class="qp-digital-page qp-auto-photo-page"><header><strong>IPC — ${htmlSafe(kind)}</strong><span>Assembly</span></header><img src="${htmlSafe(photo.data)}" alt="${htmlSafe(photo.name)}"><footer>${htmlSafe(photo.name)} · Assembly evidence</footer></div>`).join("")).join("") || `<div class="qp-auto-missing">IPC photos missing from Assembly.</div>` : Array.from({length: Math.max(1, Number(selected.pages || 1))}, (_, index) => `<div class="qp-digital-page"><header><strong>B&amp;S HEALTHCARE</strong><span>Batch ${htmlSafe(product.batch)}</span></header><h3>${htmlSafe(selected.name)}</h3><p>${htmlSafe(product.product)} · ${htmlSafe(product.strength || "")}</p><p>Supplier: ${htmlSafe(evidence.supplier)}<br>Invoice: ${htmlSafe(evidence.invoice)}<br>Licence: ${htmlSafe(product.pl || "-")}</p>${index === 0 ? related.map(check => `<p><strong>${htmlSafe(check.name)}</strong><br>${htmlSafe(check.detail)}</p>`).join("") : '<div class="qp-digital-preview-lines"><i></i><i></i><i></i></div>'}<footer>Batch record · Page ${index + 1} of ${selected.pages}</footer></div>`).join(""));
-  return `<div class="qp-release-layout qp-review-dashboard-layout"><section class="qp-release-window qp-release-detail-window qp-review-dashboard qp-auto-classic">
-    <div class="qp-review-hero"><h2>QP Release Dashboard - ${htmlSafe(product.batch)}</h2><button class="classic-button qp-review-back" data-qp-back-list>Back to QP List</button></div>
-    <div class="qp-digital-summary"><div><strong>9</strong><span>Checks</span></div><div class="reviewed"><strong>${passed}</strong><span>Passed</span></div><div class="issues"><strong>${deviations}</strong><span>Deviations</span></div><div class="qp-digital-progress"><span>${passed} of 9 System Checks Passed</span><i><b style="width:${passed / 9 * 100}%"></b></i></div></div>
-    ${deviations || pending ? `<div class="qp-auto-alert" role="alert">${deviations} deviation(s) · ${pending} pending check(s). ${ready ? "All findings accepted by QP. Final approval is available." : "Review or accept each finding below to proceed."}</div>` : ""}
-    <section class="qp-dashboard-documents" aria-label="Required document dashboard">
-      <header class="qp-dashboard-section-header">
-        <div><h3>Required Documents</h3><p>${htmlSafe(product.product)} ${htmlSafe(product.strength || "")} &middot; Batch ${htmlSafe(product.batch)}</p></div>
-        <span>${documents.length} documents &middot; Select View to open</span>
-      </header>
-      <div class="qp-dashboard-table-shell">
-        <table class="classic-table qp-dashboard-document-table">
-          <thead><tr><th>No.</th><th>Document / File</th><th>Source</th><th>Checks Performed</th><th>System Result</th><th>Action</th></tr></thead>
-          <tbody>${documents.map((doc, index) => {
-            const documentStatus = statusFor(doc);
-            const documentChecks = (mapping[doc.id] || [8]).map(checkIndex => checks[checkIndex]).filter(Boolean);
-            return `<tr><td>${String(index + 1).padStart(2, "0")}</td><td><strong>${htmlSafe(doc.name)}</strong><small class="qp-dashboard-file-name">${htmlSafe(doc.fileName)}</small></td><td>${htmlSafe(doc.group)}</td><td class="qp-dashboard-checks-performed">${documentChecks.map(check => `<span>${htmlSafe(check.name)}</span>`).join("")}</td><td><span class="qp-dashboard-status ${badge(documentStatus)}">${documentStatus}</span></td><td><button class="classic-button primary" type="button" data-view-qp-document="${doc.id}">View</button></td></tr>`;
-          }).join("")}</tbody>
-        </table>
-      </div>
-    </section>
-    ${renderQpReferenceComparisons(product)}
-    <details class="qp-auto-checks" ${deviations || pending ? "open" : ""}><summary>Automatic Checks — ${passed}/9 passed <small>RPi documents and Assembly IPC photos</small></summary><table class="classic-table qp-system-check-table"><thead><tr><th>Check</th><th>Result</th><th>Findings</th><th>QP Review</th></tr></thead><tbody>${checks.map((check, index) => `<tr class="qp-check-${check.status.toLowerCase()}"><td>${htmlSafe(check.name)}</td><td><strong>${check.status}</strong></td><td>${htmlSafe(check.detail)}</td><td>${check.status === "Passed" ? "No action needed" : getQpCheckOverride(product, check) ? `<strong>Accepted by QP</strong><div>${htmlSafe(getQpCheckOverride(product, check).user)} · ${htmlSafe(getQpCheckOverride(product, check).at)}</div><div>${htmlSafe(getQpCheckOverride(product, check).comment)}</div>` : `<textarea data-qp-override-comment="${index}" aria-label="Optional QP comment for ${htmlSafe(check.name)}" placeholder="Comment (optional)" rows="2"></textarea><button class="classic-button" data-qp-accept-check="${index}">Reviewed — Accept and Proceed</button>`}</td></tr>`).join("")}</tbody></table></details>
-    <div class="qp-release-actions qp-dashboard-actions qp-decision-actions qp-review-action-bar"><div class="qp-review-progress">${passed}/9 automatic checks passed · ${acceptedCount} accepted by QP</div><div class="qp-review-action-buttons"><button class="classic-button primary" data-qp-approve-batch ${ready ? "" : "disabled"}>Approve</button><button class="classic-button" data-qp-hold-batch>Hold</button><button class="classic-button" data-qp-banding-batch>Banding</button><button class="classic-button danger" data-qp-reject-batch>Reject</button></div></div>
-  </section></div>`;
+function getQpReviewChecks(product) {
+  // Retain legacy identifiers for saved reviews; deviation checks are no longer active.
+  return getQpAutomaticResults(product)
+    .map((check, index) => ({ ...check, index }))
+    .filter(check => ![4, 8].includes(check.index));
 }
 
+function renderQpSelectedDashboard(stage) {
+  const product = qpSelectedProduct;
+  const checks = getQpReviewChecks(product);
+  const documents = getQpDocumentPack(product);
+  const mapping = { "ipc-photos": [0,5,6], "completed-bar": [0,1,2,5,6], "batch-summary": [0], "supplier-invoice": [1], "supplier-declaration": [2], "temperature-record": [3], "reconciliation": [7], "approved-artwork": [5] };
+  const checksFor = doc => checks.filter(check => (mapping[doc.id] || []).includes(check.index));
+  const displayStatus = status => status === "Deviation" ? "Review" : status;
+  const displayFinding = detail => String(detail).replace(/\bdeviations?\b/gi, "issue");
+  const referenceMismatchCount = getQpReferenceComparisons(product).filter(row => !row.matches).length;
+  const packagingFindings = referenceMismatchCount
+    ? `${referenceMismatchCount} packaging reference${referenceMismatchCount === 1 ? " does" : "s do"} not match BAR.`
+    : "All packaging references match BAR.";
+  const statusFor = doc => {
+    const related = checksFor(doc);
+    return related.some(check => check.status === "Pending") ? "Pending" : related.some(check => check.status === "Deviation") ? "Review" : related.length ? "Passed" : "Available";
+  };
+  if (!documents.some(doc => doc.id === qpSelectedDocumentId)) qpSelectedDocumentId = documents[0].id;
+  const passed = checks.filter(check => check.status === "Passed").length;
+  const acceptedCount = checks.filter(check => getQpCheckOverride(product, check)).length;
+  const pending = checks.filter(check => check.status === "Pending" && !getQpCheckOverride(product, check)).length;
+  const ready = areAllQpDashboardDocumentsVerified(product);
+  const badge = status => status === "Passed" ? "reviewed" : status === "Available" ? "available" : "pending";
+  return `<div class="qp-release-layout qp-review-dashboard-layout"><section class="qp-release-window qp-release-detail-window qp-review-dashboard qp-auto-classic qp-review-redesign">
+    <header class="qp-review-context">
+      <div class="qp-review-batch-identity"><strong>${htmlSafe(product.product || product.description)}</strong><div class="qp-review-batch-meta"><span>Batch <b>${htmlSafe(product.batch)}</b></span><span>Release ID <b>${htmlSafe(getQpReleaseLogId(product.batch) || "Not assigned")}</b></span><span>${htmlSafe(product.strength || "—")}</span><span>Pack size ${htmlSafe(product.packSize || "—")}</span></div></div>
+      <div class="qp-review-context-actions"><span class="qp-review-count"><b>${documents.length}</b> documents</span><span class="qp-review-count"><b>${passed}/${checks.length}</b> checks passed</span><button class="classic-button" type="button" data-qp-back-list>Back to Batch List</button></div>
+    </header>
+    <div class="qp-review-body">
+      <section class="qp-dashboard-documents" aria-label="Required document dashboard">
+        <header class="qp-dashboard-section-header"><h3>Required Documents — ${documents.length} files</h3><span>Scroll to see all files · Select View to preview</span></header>
+        <div class="qp-dashboard-table-shell"><table class="classic-table qp-dashboard-document-table">
+          <thead><tr><th>No.</th><th>Document / File</th><th>QP Checks</th><th>System Result</th><th>Action</th></tr></thead>
+          <tbody>${documents.map((doc, index) => {
+            const status = statusFor(doc);
+            const related = checksFor(doc);
+            return `<tr><td>${String(index + 1).padStart(2, "0")}</td><td><strong>${htmlSafe(doc.name)}</strong><small class="qp-dashboard-file-name">${htmlSafe(doc.fileName)}</small></td><td class="qp-dashboard-checks-performed">${related.length ? related.map(check => `<span>${htmlSafe(check.label || check.name)}</span>`).join("") : '<span class="qp-document-review-label">QP document review</span>'}</td><td><span class="qp-dashboard-status ${badge(status)}">${status}</span></td><td><div class="qp-review-document-actions"><button class="classic-button primary" type="button" data-view-qp-document="${doc.id}" aria-label="View ${htmlSafe(doc.name)}">View</button></div></td></tr>`;
+          }).join("")}</tbody>
+        </table></div>
+      </section>
+      ${renderQpReferenceComparisons(product)}
+      <details class="qp-auto-checks" ${pending ? "open" : ""}><summary>QP Checks <span>${passed}/${checks.length} passed</span></summary>
+        <div class="qp-review-checks-scroll"><table class="classic-table qp-system-check-table"><thead><tr><th>Check</th><th>Result</th><th>Findings</th><th>QP Review</th></tr></thead><tbody>${checks.map(check => {
+          const accepted = getQpCheckOverride(product, check);
+          return `<tr class="qp-check-${displayStatus(check.status).toLowerCase()}"><td>${htmlSafe(check.label || check.name)}</td><td><span class="qp-dashboard-status ${badge(displayStatus(check.status))}">${displayStatus(check.status)}</span></td><td>${check.index === 5 ? packagingFindings : htmlSafe(displayFinding(check.detail))}</td><td>${check.status === "Passed" ? 'No action needed' : accepted ? `<strong>Reviewed by QP</strong><div>${htmlSafe(accepted.user)} · ${htmlSafe(accepted.at)}</div><div>${htmlSafe(accepted.comment)}</div>` : `<textarea data-qp-override-comment="${check.index}" aria-label="Optional QP comment for ${htmlSafe(check.label || check.name)}" placeholder="Comment (optional)" rows="2"></textarea><button class="classic-button" type="button" data-qp-accept-check="${check.index}">Record QP Review</button>`}</td></tr>`;
+        }).join("")}</tbody></table></div>
+      </details>
+    </div>
+    <footer class="qp-release-actions qp-dashboard-actions qp-decision-actions qp-review-action-bar"><div class="qp-review-progress"><strong>${ready ? 'Ready for QP decision' : `${pending} pending check${pending === 1 ? '' : 's'}`}</strong><span>${passed}/${checks.length} checks passed · ${acceptedCount} reviewed by QP</span></div><div class="qp-review-action-buttons"><button class="classic-button primary" type="button" data-qp-approve-batch ${ready ? "" : "disabled"}>Approve</button><button class="classic-button" type="button" data-qp-hold-batch>Hold</button><button class="classic-button" type="button" data-qp-banding-batch>Banding</button><button class="classic-button danger" type="button" data-qp-reject-batch>Reject</button></div></footer>
+  </section></div>`;
+}
 function renderSystemQpSelectedDashboard(stage) {
   const product = qpSelectedProduct;
   const record = qpReleaseRecords[product.batch] || {};
@@ -11660,7 +11906,7 @@ function renderSystemQpSelectedDashboard(stage) {
     <div class="qp-system-columns"><aside><h3>RPi Pack / Batch Documents</h3><p>Files already provided by RPi Pack Creation and batch stages.</p>${getQpDocumentPack(product).map(doc => `<button class="classic-button" data-view-qp-document="${doc.id}">${htmlSafe(doc.name)}${doc.id === "completed-bar" ? " — Open BAR" : ""}</button>`).join("")}</aside>
     <main><section class="qp-system-photos"><h3>IPC photos — Assembly stage</h3><p>Demo mode: automatic results use sample RPi documents and Assembly IPC images. QP reviews the findings and makes the final decision.</p><div class="qp-system-photo-groups">${[["blister", "Blister labels"], ["carton", "Outer / pre-printed carton"], ["leaflet", "Leaflet"], ["braille", "Braille label"]].map(([key, label]) => `<div><strong>${label}</strong><div class="qp-system-thumbnails">${(photos[key] || []).map(photo => `<a href="${htmlSafe(photo.data)}" target="_blank" rel="noopener"><img src="${htmlSafe(photo.data)}" alt="${htmlSafe(photo.name)}"><span>${htmlSafe(photo.name)}</span></a>`).join("") || "Missing from Assembly"}</div></div>`).join("")}</div></section>
     <div class="qp-system-check-heading"><h3>System verification against BAR</h3><button class="classic-button primary" data-qp-run-system-checks>Run System Checks</button></div>
-    <table class="classic-table qp-system-check-table"><thead><tr><th>Check</th><th>Result</th><th>Findings / required action</th></tr></thead><tbody>${checks.map(check => `<tr class="qp-check-${check.status.toLowerCase()}"><td>${htmlSafe(check.name)}</td><td><strong>${check.status}</strong></td><td>${htmlSafe(check.detail)}</td></tr>`).join("")}</tbody></table></main></div>
+    <table class="classic-table qp-system-check-table"><thead><tr><th>Check</th><th>Result</th><th>Findings / required action</th></tr></thead><tbody>${checks.map(check => `<tr class="qp-check-${check.status.toLowerCase()}"><td>${htmlSafe(check.label || check.name)}</td><td><strong>${check.status}</strong></td><td>${htmlSafe(check.detail)}</td></tr>`).join("")}</tbody></table></main></div>
     <div class="qp-release-actions"><span>${record.systemCheckRun ? `Last run: ${htmlSafe(record.systemCheckRun.at)}` : "Checks evaluate the current batch records."}</span><button class="classic-button primary" data-qp-approve-batch ${pending || deviations ? "disabled" : ""}>Approve</button><button class="classic-button" data-qp-hold-batch>Hold</button><button class="classic-button" data-qp-banding-batch>Banding</button><button class="classic-button danger" data-qp-reject-batch>Reject</button></div>
     </section></div>`;
 }
@@ -11872,15 +12118,13 @@ function renderQpProcess11BarPage(product, editable = false) {
 
 function renderQpChecklistWindow(stage) {
   const product = qpSelectedProduct;
-  const data = getQpProcess11Data(product);
-  const isSigned = Boolean(data.signedAt);
   return `
     <div class="qp-release-layout qp-process11-layout">
       <section class="qp-release-window qp-process11-window">
-        <div class="qp-process11-header"><strong>QP Final Approval</strong><button class="classic-button" type="button" data-qp-back-dashboard>Back to Document Review</button></div>
+        <div class="qp-process11-header"><strong>QP Final Approval</strong><button class="classic-button qp-process11-close" type="button" data-qp-back-dashboard aria-label="Close QP Final Approval" title="Close">×</button></div>
         <div class="qp-process11-paper-wrap">${renderQpProcess11BarPage(product, !qpReleaseRecords[product.batch]?.approved)}</div>
         <div class="qp-process11-actions">
-          ${qpReleaseRecords[product.batch]?.approved ? "<span>Approved — read only</span>" : `<button class="classic-button" type="button" data-qp-process11-sign ${isSigned ? "disabled" : ""}>Click to Sign</button><button class="classic-button primary" type="button" id="qp-release-complete-button" ${isSigned ? "" : "disabled"}>Confirm Approval</button>`}
+          ${qpReleaseRecords[product.batch]?.approved ? "<span>Approved — read only</span>" : `<button class="classic-button primary" type="button" data-qp-process11-sign>Click to Sign</button>`}
         </div>
       </section>
     </div>`;
@@ -11938,6 +12182,10 @@ function signQpProcess11() {
   saveQpProcess11FormState();
   const quantity = getQpProcess11Data(qpSelectedProduct).quantityReleased;
   if (String(quantity).trim() === "" || !Number.isInteger(Number(quantity)) || Number(quantity) < 0) { statusMessage.textContent = "Enter a valid whole-number quantity before signing."; return; }
+  if (!areAllQpDashboardDocumentsVerified(qpSelectedProduct)) {
+    statusMessage.textContent = "Approval blocked: complete the pending QP checks before signing.";
+    return;
+  }
   const batchNumber = qpSelectedProduct.batch;
   const now = getAssemblyAuditTimestamp();
   const signedBy = currentLogin ? currentLogin.user : "qp.release";
@@ -11954,8 +12202,9 @@ function signQpProcess11() {
   };
   ensureGeneratedBarRecord(qpSelectedProduct).process11 = { ...process11 };
   persistQpReleaseRecords();
-  renderStage("qp-release");
-  statusMessage.textContent = `Process 11 Printed BAR signed for batch ${batchNumber}.`;
+  const declaration = document.querySelector("#qp-declaration");
+  if (declaration) declaration.checked = true;
+  completeQpRelease();
 }
 
 function saveQpDocumentReview(documentId, update, auditResult, auditComments) {
@@ -12081,7 +12330,7 @@ function acceptQpCheckOverride(index, comment = "") {
 }
 
 function areAllQpDashboardDocumentsVerified(product) {
-  return getQpAutomaticResults(product).every(check => check.status === "Passed" || getQpCheckOverride(product, check));
+  return getQpReviewChecks(product).every(check => check.status !== "Pending" || getQpCheckOverride(product, check));
 }
 
 function updateQpReleaseAvailability() {
@@ -12098,14 +12347,13 @@ function updateQpReleaseAvailability() {
     const openChecklist = document.querySelector("[data-qp-open-checklist]");
     if (openChecklist) openChecklist.disabled = !documents.every((document) => documentsState[document.id]);
   }
-  if (!submitButton) return;
   const record = qpReleaseRecords[qpSelectedProduct.batch] || {};
   if (document.querySelector(".qp-process11-window")) {
-    submitButton.disabled = !Boolean(record.process11Signoff && record.process11Signoff.signedAt);
     const signButton = document.querySelector("[data-qp-process11-sign]");
-    if (signButton) signButton.disabled = Boolean(record.process11Signoff?.signedAt);
+    if (signButton) signButton.disabled = Boolean(record.approved) || !areAllQpDashboardDocumentsVerified(qpSelectedProduct);
     return;
   }
+  if (!submitButton) return;
   const declarationAccepted = document.querySelector("#qp-declaration");
   const quantityReleased = document.querySelector("#qp-quantity-released");
   const surplusStatus = document.querySelector("#qp-surplus-status");
@@ -12181,7 +12429,7 @@ function requestQpReleaseLogConfirmation() {
   dialog.id = "qp-log-sign-confirm";
   dialog.className = "qp-log-sign-confirm";
   dialog.setAttribute("aria-labelledby", "qp-log-sign-confirm-title");
-  dialog.innerHTML = `<h3 id="qp-log-sign-confirm-title">Confirm QP Release Log Approval</h3><p>Sign and approve this Release Log Sheet?</p><p>This will save the sheet, move its batches to the next stage and remove them from the QP queue.</p><div class="confirm-actions"><button type="button" class="classic-button" data-qp-log-confirm-cancel>Cancel</button><button type="button" class="classic-button primary" data-qp-log-confirm-yes>Confirm Sign &amp; Approve</button></div>`;
+  dialog.innerHTML = `<h3 id="qp-log-sign-confirm-title">Confirm Approval</h3><p>Sign and approve this Release Log?</p><div class="confirm-actions"><button type="button" class="classic-button" data-qp-log-confirm-cancel>Cancel</button><button type="button" class="classic-button primary" data-qp-log-confirm-yes>Sign &amp; Approve</button></div>`;
   const dismiss = () => { dialog.close(); dialog.remove(); if (trigger?.isConnected) trigger.focus(); };
   dialog.querySelector("[data-qp-log-confirm-cancel]").addEventListener("click", dismiss);
   dialog.addEventListener("cancel", event => { event.preventDefault(); dismiss(); });
@@ -12319,21 +12567,35 @@ function downloadQpDocument(documentId) {
 }
 
 function openQpDocumentPreview(documentId) {
+  if (!qpSelectedProduct) return;
+  const file = getQpDocumentPack(qpSelectedProduct).find(doc => doc.id === documentId);
+  if (!file) return;
   renderQpDocumentPreview(documentId);
+  if (printPreviewModal.classList.contains("hidden")) return;
+  document.querySelector("#print-preview-title").textContent = `File Preview — ${file.name}`;
   const toolbar = printPreviewBody.querySelector(".preview-toolbar");
-  if (!toolbar || !qpSelectedProduct) return;
-  toolbar.classList.add("qp-document-action-toolbar");
-  const actions = document.createElement("div");
-  actions.className = "qp-document-preview-actions";
+  if (toolbar) {
+    toolbar.classList.add("qp-document-action-toolbar");
+    toolbar.querySelector("[data-close-print-preview]")?.remove();
+  }
+  const shell = document.createElement("div");
+  shell.className = "qp-file-preview-shell";
+  const content = document.createElement("div");
+  content.className = "qp-file-preview-content";
+  content.tabIndex = 0;
+  content.setAttribute("aria-label", `${file.name} preview`);
+  while (printPreviewBody.firstChild) content.appendChild(printPreviewBody.firstChild);
+  const actions = document.createElement("footer");
+  actions.className = "qp-document-preview-actions qp-file-preview-footer";
   const download = document.createElement("button");
   download.type = "button";
   download.className = "classic-button primary";
   download.dataset.downloadQpDocument = documentId;
   download.textContent = "Download";
   actions.appendChild(download);
-  const close = toolbar.querySelector("[data-close-print-preview]");
-  if (close) close.remove();
-  toolbar.appendChild(actions);
+  shell.appendChild(content);
+  shell.appendChild(actions);
+  printPreviewBody.appendChild(shell);
 }
 
 function renderQpDocumentPreview(documentId) {
@@ -12492,12 +12754,10 @@ function completeQpRelease() {
     }]
   };
   persistQpReleaseRecords();
-  statusMessage.textContent = `Batch ${batchNumber} decision saved. Sign and approve the complete QP Release Log to move the batches forward.`;
-  window.setTimeout(() => {
-    qpSelectedProduct = null;
-    qpChecklistOpen = false;
-    renderStage("qp-release");
-  }, 900);
+  qpSelectedProduct = null;
+  qpChecklistOpen = false;
+  renderStage("qp-release");
+  statusMessage.textContent = `Batch ${batchNumber} signed and approved. Sign and approve the complete QP Release Log to move the batches forward.`;
 }
 
 function getBatchRecordStore() {
@@ -12549,8 +12809,20 @@ function renderBatchRecordModule() {
   getQpCertifiedProducts().filter(product => getQpCertifiedDecisionTab(product) === "Approved").forEach(archiveApprovedBatch);
   const records = Object.values(getBatchRecordStore()).filter(record => isQpReleaseLogFinalized({batch: record.batch}));
   const selected = records.find(record => record.batch === window.batchRecordSelected);
-  if (selected) return `<section class="batch-record-module"><div class="qp-review-hero"><h2>Batch Record — ${htmlSafe(selected.batch)}</h2><button class="classic-button" data-batch-record-back>Back to Batch Records</button></div><p>${htmlSafe(selected.product)} · Release ID ${htmlSafe(selected.relId)} · Approved by ${htmlSafe(selected.approvedBy)} · ${htmlSafe(selected.approvedAt)}</p><button class="classic-button" data-batch-record-preview="all">View / Print Complete Record</button><table class="classic-table"><thead><tr><th>Document</th><th>File</th><th>Action</th></tr></thead><tbody>${selected.documents.map(doc => `<tr><td>${htmlSafe(doc.name)}</td><td>${htmlSafe(doc.fileName)}</td><td><button class="classic-button" data-batch-record-preview="${doc.id}">View / Print</button></td></tr>`).join("")}</tbody></table></section>`;
-  return `<section class="batch-record-module"><div class="qp-review-hero"><h2>Batch Record</h2><span>${records.length} approved batches</span></div><div class="batch-record-search-row"><input id="batch-record-search" aria-label="Search batch, product or Release ID" placeholder="Batch, product or Release ID" value="${htmlSafe(window.batchRecordSearch || "")}"><button class="classic-button" data-batch-record-search>Search</button></div><div class="qp-rel-cards">${records.filter(record => `${record.batch} ${record.product} ${record.relId}`.toLowerCase().includes((window.batchRecordSearch || "").toLowerCase())).map(record => `<article class="qp-rel-card"><h3>${htmlSafe(record.batch)}</h3><p class="batch-record-product-name">${htmlSafe(record.product)}</p><div class="batch-record-card-footer"><span>Approved ${htmlSafe(record.approvedAt || "—")}</span><button class="classic-button" aria-label="Open batch record ${htmlSafe(record.batch)}" data-batch-record-open="${htmlSafe(record.batch)}">Open</button></div></article>`).join("") || "<p>No approved batch records found.</p>"}</div></section>`;
+  if (selected) return `<section class="batch-record-module batch-record-detail">
+    <div class="batch-record-detail-header"><h2>Batch Record — ${htmlSafe(selected.batch)}</h2><button class="classic-button" data-batch-record-back>Back to Batch Records</button></div>
+    <div class="batch-record-documents-shell"><table class="classic-table batch-record-documents-table"><thead><tr><th>Document</th><th>File</th><th>Action</th></tr></thead><tbody>${selected.documents.map(doc => `<tr><td>${htmlSafe(doc.name)}</td><td>${htmlSafe(doc.fileName)}</td><td><button class="classic-button" aria-label="View ${htmlSafe(doc.name)}" data-batch-record-preview="${doc.id}">View</button></td></tr>`).join("")}</tbody></table></div>
+  </section>`;
+  return `<section class="batch-record-module batch-record-list">
+    <div class="batch-record-search-row"><input id="batch-record-search" aria-label="Search batch, product or Release ID" placeholder="Batch, product or Release ID" value="${htmlSafe(window.batchRecordSearch || "")}"><button class="classic-button" data-batch-record-search>Search</button></div>
+    <div class="goods-summary-list-shell batch-record-list-shell"><table class="classic-table goods-summary-list batch-record-list-table">
+      <thead><tr><th>BNS Batch No.</th><th>Status</th><th>Approved Date / Time</th><th>Action</th></tr></thead>
+      <tbody>${records.filter(record => `${record.batch} ${record.product} ${record.relId}`.toLowerCase().includes((window.batchRecordSearch || "").toLowerCase())).map(record => `<tr>
+        <td><strong>${htmlSafe(record.batch)}</strong></td><td><span class="goods-summary-stage complete">Approved</span></td><td>${htmlSafe(record.approvedAt || "—")}</td>
+        <td><button class="classic-button primary" aria-label="Open batch record ${htmlSafe(record.batch)}" data-batch-record-open="${htmlSafe(record.batch)}">Open</button></td>
+      </tr>`).join("") || '<tr><td colspan="4" class="goods-summary-empty">No approved batch records found.</td></tr>'}</tbody>
+    </table></div>
+  </section>`;
 }
 
 function openBatchRecordPreview(id) {
@@ -12560,8 +12832,35 @@ function openBatchRecordPreview(id) {
   if (!docs.length) return;
   printPreviewRequest = null;
   document.querySelector("#print-preview-title").textContent = `Batch Record — ${record.batch}`;
-  printPreviewBody.innerHTML = `<div class="preview-toolbar"><strong>${htmlSafe(record.batch)} · ${docs.length} document(s)</strong><button class="classic-button primary" data-batch-record-print>Print</button><button class="classic-button" data-close-print-preview>Close</button></div><div class="batch-record-print-content">${docs.map(doc => `<article class="batch-record-document"><h2>${htmlSafe(doc.name)}</h2>${doc.html}</article>`).join("")}</div>`;
+  printPreviewBody.innerHTML = `<div class="qp-file-preview-shell">
+    <div class="qp-file-preview-content" tabindex="0" aria-label="Batch record file preview"><div class="batch-record-print-content">${docs.map(doc => `<article class="batch-record-document"><h2>${htmlSafe(doc.name)}</h2>${doc.html}</article>`).join("")}</div></div>
+    <footer class="qp-document-preview-actions qp-file-preview-footer"><button class="classic-button primary" type="button" data-batch-record-download="${htmlSafe(id)}" data-batch-record-batch="${htmlSafe(record.batch)}">Download</button></footer>
+  </div>`;
   printPreviewModal.classList.remove("hidden");
+}
+
+function downloadBatchRecord(id, batchNumber = window.batchRecordSelected) {
+  const record = getBatchRecordStore()[batchNumber];
+  if (!record) return;
+  const docs = id === "all" ? record.documents : record.documents.filter(doc => doc.id === id);
+  if (!docs.length) return;
+  // Export the saved archive contents, including original values and review history.
+  const sourceStyles = Array.from(document.styleSheets).map(sheet => {
+    try { return Array.from(sheet.cssRules, rule => rule.cssText).join("\n"); }
+    catch { return ""; }
+  }).join("\n");
+  const content = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Batch Record — ${htmlSafe(record.batch)}</title><style>${sourceStyles}\nbody{margin:0;padding:20px;background:#fff;color:#17364d;font:12px/1.5 Arial,sans-serif}.batch-record-print-content{background:#fff;padding:12px}.batch-record-document{margin-bottom:24px;break-before:page}.batch-record-document:first-child{break-before:auto}table{border-collapse:collapse;width:100%}th,td{border:1px solid #c5d6e2;padding:8px;text-align:left}th{background:#dfecf4}img{max-width:100%;height:auto}@media print{body{padding:0}}</style></head><body><main class="batch-record-print-content">${docs.map(doc => `<article class="batch-record-document"><h2>${htmlSafe(doc.name)}</h2>${doc.html}</article>`).join("")}</main></body></html>`;
+  const fileBase = id === "all" ? `${record.batch}_Complete_Batch_Record` : docs[0].fileName.replace(/\.[^.]+$/, "");
+  const fileName = `${fileBase.replace(/[^a-z0-9._-]+/gi, "_")}.html`;
+  const url = URL.createObjectURL(new Blob([content], { type: "text/html;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  statusMessage.textContent = `${fileName} downloaded.`;
 }
 
 function renderBatchDetails(product) {
@@ -13744,6 +14043,14 @@ function removeRepeatedModuleTitles() {
 }
 
 function renderStage(stageId) {
+  if (stageId === "batch-checker" && currentStageId !== "batch-checker") {
+    batchCheckerDashboardOpen = true;
+    batchCheckerSelectedPo = "";
+    batchCheckerSearch = "C13719";
+    batchCheckerFilters = { supplier: "", contract: "", product: "", invoice: "", po: "", site: "", status: "", mfgLot: "", country: "" };
+    selectedBatchCheckerRowKey = null;
+    batchCheckerChecklistOpen = false;
+  }
   const stage = findStage(stageId);
   currentStageId = stage.id;
   welcomeWindow.classList.add("hidden");
@@ -13987,6 +14294,16 @@ function renderStage(stageId) {
 }
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.target.id === "batchchecker-po-search" || event.target.matches("[data-batchchecker-filter]"))) {
+    event.preventDefault();
+    document.querySelector("[data-batchchecker-search-btn]")?.click();
+    return;
+  }
+  if (event.key === "Enter" && event.target.id === "batchchecker-completion-password") {
+    event.preventDefault();
+    document.querySelector("[data-confirm-batchchecker-completion]")?.click();
+    return;
+  }
   if (!event.target.matches("[data-release-log-scan]") || event.key !== "Enter") return;
   event.preventDefault();
   const scanValue = event.target.value.trim().toLowerCase();
@@ -14003,6 +14320,36 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-cancel-batchchecker-issue]")) {
+    batchCheckerIssuePendingSave = null;
+    document.querySelector("#batchchecker-issue-dialog")?.remove();
+    return;
+  }
+  if (event.target.closest("[data-save-batchchecker-issue]")) {
+    const pending = batchCheckerIssuePendingSave;
+    const comment = document.querySelector("#batchchecker-issue-comment")?.value.trim() || "";
+    if (!comment) {
+      document.querySelector("#batchchecker-issue-error").textContent = "Enter a comment before saving.";
+      document.querySelector("#batchchecker-issue-comment").focus();
+      return;
+    }
+    if (!pending || batchCheckerVerificationDraft?.rowKey !== pending.rowKey) return;
+    finishBatchCheckerVerificationSave(pending.row, pending.checks, comment);
+    return;
+  }
+  if (event.target.closest("[data-close-batchchecker-completion]")) {
+    batchCheckerPendingCompletion = null;
+    document.querySelector("#batchchecker-completion-modal")?.remove();
+    return;
+  }
+  if (event.target.closest("[data-confirm-batchchecker-completion]")) {
+    completeBatchCheckerLine(document.querySelector("#batchchecker-completion-password")?.value || "");
+    return;
+  }
+  if (event.target.closest("#batchchecker-final-check")) {
+    openBatchCheckerCompletion(getBatchCheckerRows()[selectedBatchCheckerRowKey]);
+    return;
+  }
   const launcherToggle = event.target.closest("[data-toggle-module-launcher]");
   if (launcherToggle) {
     const desktop = launcherToggle.closest(".desktop");
@@ -14298,7 +14645,8 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
   if (event.target.closest("[data-batchchecker-back-list]")) {
     batchCheckerDashboardOpen = true;
     batchCheckerSelectedPo = "";
-    batchCheckerSearch = "";
+    batchCheckerSearch = "C13719";
+    batchCheckerFilters = { supplier: "", contract: "", product: "", invoice: "", po: "", site: "", status: "", mfgLot: "", country: "" };
     selectedBatchCheckerRowKey = null;
     renderStage("batch-checker");
     return;
@@ -14321,10 +14669,11 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     const rows = getBatchCheckerRows();
     const row = rows[selectedBatchCheckerRowKey];
     const rowKey = row ? getBatchCheckerRowKey(row) : "";
-    if (row && batchCheckerVerifiedRows[rowKey]) {
+    if (row && isBatchCheckerLineLocked(row)) {
       if (openBatchCheckerReprintReason("label", row)) return;
-      const record = markBatchCheckerLabelPrinted(row, "Goods In Label");
+      const record = markBatchCheckerLabelPrinted(row, "Box Label");
       renderStage("batch-checker");
+      printBatchCheckerBoxLabel(row);
       statusMessage.textContent = `Goods In Label printed for ${row.batchNo} by ${record.user} at ${record.dateTime}.`;
     } else {
       statusMessage.textContent = "Verify the selected line before printing its label.";
@@ -14367,7 +14716,8 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     batchCheckerCheckedRows[rowKey] = checkerSelect.checked;
     const currentPoRowKeys = rows.map(r => `${r.orderNo}_${r.batchNo}`);
     const totalChecked = Object.keys(batchCheckerCheckedRows).filter(k => batchCheckerCheckedRows[k] && currentPoRowKeys.includes(k)).length;
-    document.querySelector("#batchchecker-total-scan").textContent = totalChecked;
+    const totalScan = document.querySelector("#batchchecker-total-scan");
+    if (totalScan) totalScan.textContent = totalChecked;
     selectedBatchCheckerRowKey = idx;
     document.querySelectorAll(".batchchecker-table tbody tr").forEach((tr, wIdx) => {
       tr.classList.toggle("selected-row", wIdx === selectedBatchCheckerRowKey);
@@ -14378,13 +14728,16 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
 
   // Batch Checker Search
   if (event.target.closest("[data-batchchecker-search-btn]")) {
-    const scanInput = document.querySelector("[data-batchchecker-scan-input]");
-    if (scanInput) {
-      batchCheckerSearch = scanInput.value;
-    }
+    const poInput = document.querySelector("#batchchecker-po-search");
+    batchCheckerSearch = String(poInput ? poInput.value : batchCheckerSelectedPo || "").trim().toUpperCase();
+    batchCheckerSelectedPo = batchCheckerSearch;
+    document.querySelectorAll("[data-batchchecker-filter]").forEach(input => {
+      batchCheckerFilters[input.dataset.batchcheckerFilter] = input.value.trim();
+    });
+    batchCheckerDashboardOpen = !batchCheckerSelectedPo && !Object.values(batchCheckerFilters).some(value => String(value || "").trim());
     selectedBatchCheckerRowKey = null; // Reset selection on new search to avoid out-of-bounds
     renderStage("batch-checker");
-    statusMessage.textContent = "Batch Checker search results loaded.";
+    statusMessage.textContent = batchCheckerDashboardOpen ? "Enter a PO, supplier, batch or another search value." : `${getBatchCheckerRows().length} product line(s) found${batchCheckerSelectedPo ? ` for PO ${batchCheckerSelectedPo}` : ""}.`;
     return;
   }
   // Batch Checker Clear Scan
@@ -14400,6 +14753,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
   const mfgClick = event.target.closest("[data-batchchecker-mfg-click]");
   if (mfgClick) {
     selectedBatchCheckerRowIndexForPopup = Number(mfgClick.dataset.batchcheckerMfgClick);
+    if (isBatchCheckerLineLocked(getBatchCheckerRows()[selectedBatchCheckerRowIndexForPopup])) return;
     openMfgPopup();
     return;
   }
@@ -14412,6 +14766,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
       const mfg = batchCheckerMfgList[mfgIdx];
       const rows = getBatchCheckerRows();
       const row = rows[selectedBatchCheckerRowIndexForPopup];
+      if (!row || isBatchCheckerLineLocked(row)) return;
       row.manufacturer = mfg.name;
       row.mfgId = "30" + (mfgIdx + 1);
       document.querySelector("#mfg-popup-modal").classList.add("hidden");
@@ -14444,6 +14799,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     if (batchNo && qtyValue && expiryDate && selectedBatchCheckerRowIndexForSplit !== null) {
       const rows = getBatchCheckerRows();
       const originalRow = rows[selectedBatchCheckerRowIndexForSplit];
+      if (isBatchCheckerLineLocked(originalRow)) return;
       const originalQty = Number(originalRow?.qty || 0);
       const splitQty = Number(qtyValue);
       if (!originalRow || splitQty <= 0 || splitQty >= originalQty) {
@@ -14503,6 +14859,10 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     const rows = getBatchCheckerRows();
     const row = rows[selectedBatchCheckerRowKey];
     if (row) {
+      if (isBatchCheckerLineLocked(row) || !row.ecma) {
+        statusMessage.textContent = "Select ECMA before Verification. Completed lines are locked.";
+        return;
+      }
       if (!row.manufacturer || row.mfgId === "0") {
         showSystemMessage("Batch Check", "Please select manufacturer.", "Select a manufacturer before opening Batch Check.");
         return;
@@ -14517,10 +14877,6 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
 
   // Batch Check confirm
   if (event.target.closest("#batch-check-confirm-btn")) {
-    const nowDate = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-    const nowTime = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const user = currentLogin ? currentLogin.user : "checker.user";
-    
     const rows = getBatchCheckerRows();
     const row = rows[selectedBatchCheckerRowKey];
     if (!row) {
@@ -14528,19 +14884,19 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
       return;
     }
     const rowKey = getBatchCheckerRowKey(row);
-    batchCheckerCheckedRows[rowKey] = true;
-    batchCheckerVerifiedRows[rowKey] = { checker: user, date: nowDate, time: nowTime };
-    row.status = "BatchCheck";
-    
-    document.querySelector("#batch-check-verify-modal").classList.add("hidden");
-    renderStage("batch-checker");
-    const completedChecks = getBatchCheckerLineChecks(row).filter(Boolean).length;
-    statusMessage.textContent = `Batch Check saved by ${user}: ${completedChecks}/${getBatchCheckerLineChecks(row).length} items checked. The PCL preview will preserve the unchecked items.`;
+    if (batchCheckerVerificationDraft?.rowKey !== rowKey) return;
+    const checks = batchCheckerVerificationDraft.checks;
+    if (!checks.every(Boolean)) {
+      openBatchCheckerIssueComment(row, checks);
+      return;
+    }
+    finishBatchCheckerVerificationSave(row, checks);
     return;
   }
 
   // Batch Check verify close
   if (event.target.closest("[data-close-batch-check-verify]")) {
+    batchCheckerVerificationDraft = null;
     document.querySelector("#batch-check-verify-modal").classList.add("hidden");
     return;
   }
@@ -14557,8 +14913,8 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
       return;
     }
     const rowKey = getBatchCheckerRowKey(row);
-    if (!hasBatchCheckerSavedVerification(row)) {
-      statusMessage.textContent = "Save Product Verification through Save Batch Check before opening the PCL preview.";
+    if (isBatchCheckerLineLocked(row) || !hasCompleteBatchCheckerVerification(row)) {
+      statusMessage.textContent = "Complete all verification checks and save Batch Check before opening the PCL preview.";
       updateBatchCheckerAvailability();
       return;
     }
@@ -14574,8 +14930,8 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     const row = rows[selectedBatchCheckerRowKey];
     if (!row) return;
     const rowKey = getBatchCheckerRowKey(row);
-    if (!hasBatchCheckerSavedVerification(row)) {
-      statusMessage.textContent = "Save Product Verification through Save Batch Check before printing the PCL.";
+    if (isBatchCheckerLineLocked(row) || !hasCompleteBatchCheckerVerification(row)) {
+      statusMessage.textContent = "Complete all verification checks and save Batch Check before printing the PCL.";
       updatePclSubmissionAvailability();
       return;
     }
@@ -14630,14 +14986,13 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     }
 
     row.printType = "Printed - PCL";
-    row.status = "Printer";
+    row.status = "PCL Printed — awaiting Batch Check";
 
-    // Add to bnsProducts only after a complete Product Verification PCL is printed.
-    const exists = bnsProducts.some(p => p.batch === row.batchNo);
+    // Printing records the PCL; password-confirmed Batch Check performs the B&S handoff.
     batchCheckerPclGeneratedRows[rowKey] = {
       user: currentLogin ? currentLogin.user : "batch.checker",
       dateTime: pclBarRecord.completedAt,
-      addedToBns: Boolean(existingPclRecord?.addedToBns || !exists),
+      addedToBns: false,
       regulatoryReviewComplete: true,
       incompleteRegulatoryReviewCopy: false,
       reprints: pclReprints,
@@ -14645,52 +15000,8 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
       checks: pclBarRecord.checks
     };
     batchCheckerActivePclReprintReason = "";
-    if (!exists) {
-      bnsProducts.push({
-status: "Active",
-site: "WHO",
-country: row.country,
-partNo: row.partNo,
-product: row.product || row.description,
-ecma: row.ecma,
-strength: row.strength,
-packSize: row.packSize,
-batch: row.batchNo,
-expiry: row.expiryDate,
-quantity: row.qty,
-imp: row.orderNo,
-invoice: row.invoice || "2904",
-description: row.description || row.product,
-warehouse: "Q-25-A",
-pl: "18799/3264",
-productId: row.productId,
-foreignName: row.foreignName,
-unitsPerPack: "1",
-productIntroduced: "11 Sep 2020",
-leafletDate: "04 Feb 2025",
-dateRevised: "09 Apr 2025",
-variationInfo: "",
-supplierName: row.supplier,
-reviewDate: row.reviewDate,
-supplierInvoice: row.invoice || "2904",
-manufLotNo: row.batchNo + "-" + row.country.substring(0, 2),
-category: "Relabelling",
-batchType: "Composite",
-routeInstruction: "Relabel only",
-routeType: "Relabelling",
-leafletRequired: true,
-leafletQuantity: row.qty,
-blisterRequired: "Yes",
-cartonQuantity: "0",
-brailleRequired: true,
-brailleQuantity: row.qty
-      });
-    }
-    
-    selectedBatchCheckerRowKey = null;
-    batchCheckerDashboardOpen = true;
     renderStage("batch-checker");
-    statusMessage.textContent = `User sign off completed and PCL generated for ${row.batchNo}. Batch moved to BNS Batch Add queue.`;
+    statusMessage.textContent = `PCL printed for ${row.batchNo}. Click Batch Check and confirm your password to print the box label and send it to B&S Batch Add.`;
     return;
   }
 
@@ -14790,13 +15101,14 @@ brailleQuantity: row.qty
     const rows = getBatchCheckerRows();
     const row = rows[selectedBatchCheckerRowKey];
     const rowKey = row ? getBatchCheckerRowKey(row) : "";
-    if (!row || !batchCheckerVerifiedRows[rowKey]) {
-      statusMessage.textContent = "Verify the selected line before printing its box label.";
+    if (!row || !isBatchCheckerLineLocked(row)) {
+      statusMessage.textContent = "Use Batch Check to confirm your password and print the first box label.";
       return;
     }
     if (openBatchCheckerReprintReason("label", row)) return;
     const record = markBatchCheckerLabelPrinted(row, "Box Label");
     renderStage("batch-checker");
+    printBatchCheckerBoxLabel(row);
     statusMessage.textContent = `Box label printed for ${row.batchNo} by ${record.user} at ${record.dateTime}.`;
     return;
   }
@@ -14812,6 +15124,7 @@ brailleQuantity: row.qty
       const existingType = batchCheckerPrintedLabelRows[getBatchCheckerRowKey(pending.row)]?.type || "Box Label";
       const record = markBatchCheckerLabelPrinted(pending.row, existingType, reason);
       renderStage("batch-checker");
+      printBatchCheckerBoxLabel(pending.row);
       statusMessage.textContent = `${existingType} reprinted for ${pending.row.batchNo}. Reason recorded: ${reason}`;
     } else {
       batchCheckerActivePclReprintReason = reason;
@@ -15104,7 +15417,7 @@ brailleQuantity: row.qty
     const poNo = visiblePoNo || packingListSelectedPo || packingListSearch || "C13719";
     packingListSelectedPo = poNo;
     packingListSearch = poNo;
-    if (canGeneratePackingList(poNo) || packingListGenerated) {
+    if (canGeneratePackingList(poNo) || isPackingListLocked()) {
       if (!rpPackWorkflows[poNo]) {
         rpPackWorkflows[poNo] = createPackingWorkflow(poNo);
       }
@@ -15134,6 +15447,10 @@ brailleQuantity: row.qty
     const key = plVerifyTrigger.dataset.plVerifyPrint;
     const row = getPackingListRows().find(r => getPackingLineKey(r) === key);
     if (row) {
+      if (!String(row.ecma || "").trim()) {
+        showSystemMessage("ECMA required", "Select ECMA", "Select ECMA from the product dropdown before verifying the line.");
+        return;
+      }
       const boxes = parseInt(row.boxes) || 1;
       const qty = parseInt(row.qty) || 0;
       
@@ -16084,6 +16401,8 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
   if (event.target.closest("[data-batch-record-search]")) { window.batchRecordSearch = document.querySelector("#batch-record-search")?.value || ""; renderStage("batch-record"); return; }
   const batchRecordPreview = event.target.closest("[data-batch-record-preview]");
   if (batchRecordPreview) { openBatchRecordPreview(batchRecordPreview.dataset.batchRecordPreview); return; }
+  const batchRecordDownload = event.target.closest("[data-batch-record-download]");
+  if (batchRecordDownload) { downloadBatchRecord(batchRecordDownload.dataset.batchRecordDownload, batchRecordDownload.dataset.batchRecordBatch); return; }
   if (event.target.closest("[data-batch-record-print]")) { window.print(); return; }
   if (overrideButton) {
     const index = Number(overrideButton.dataset.qpAcceptCheck);
@@ -16102,17 +16421,17 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
   }
 
   if (event.target.closest("[data-qp-reject-batch]")) {
-    setQpBatchDecision("Rejected");
+    requestQpBatchDecisionConfirmation("Rejected");
     return;
   }
 
   if (event.target.closest("[data-qp-hold-batch]")) {
-    setQpBatchDecision("Hold");
+    requestQpBatchDecisionConfirmation("Hold");
     return;
   }
 
   if (event.target.closest("[data-qp-banding-batch]")) {
-    setQpBatchDecision("Banding");
+    requestQpBatchDecisionConfirmation("Banding");
     return;
   }
   if (event.target.closest("[data-qp-open-checklist]")) {
@@ -16689,8 +17008,8 @@ if (check !== event.target) check.checked = false;
     const rows = getBatchCheckerRows();
     const row = rows[selectedBatchCheckerRowKey];
     if (row) {
-      const checks = getBatchCheckerLineChecks(row);
-      checks[Number(event.target.dataset.batchcheckFieldCheck)] = event.target.checked;
+      if (isBatchCheckerLineLocked(row) || batchCheckerVerificationDraft?.rowKey !== getBatchCheckerRowKey(row)) return;
+      batchCheckerVerificationDraft.checks[Number(event.target.dataset.batchcheckFieldCheck)] = event.target.checked;
       const confirmBtn = document.querySelector("#batch-check-confirm-btn");
       if (confirmBtn) confirmBtn.disabled = false;
     }
@@ -16838,15 +17157,14 @@ totalBlistersInput.value = total;
     return;
   }
   if (event.target.matches("[data-batchchecker-filter]")) {
-    batchCheckerFilters[event.target.dataset.batchcheckerFilter] = event.target.value;
-    selectedBatchCheckerRowKey = null;
-    renderStage("batch-checker");
+    // Apply all fields together on Search so editing a filter cannot change the selected line underneath an action.
     return;
   }
   if (event.target.matches("[data-batchchecker-row-edit]")) {
     const rows = getBatchCheckerRows();
     const row = rows[Number(event.target.dataset.batchcheckerRowIndex)];
     if (row) {
+      if (isBatchCheckerLineLocked(row)) return;
       const field = event.target.dataset.batchcheckerRowEdit;
       if (!["mfgLotNo", "expiryDate", "qty"].includes(field)) return;
       row[field] = event.target.value;
@@ -16885,6 +17203,10 @@ totalBlistersInput.value = total;
       return;
     }
     updatePackingRowValue(event.target.dataset.packingRowKey, event.target.dataset.packingRowInput, event.target.value);
+    if (event.target.dataset.packingRowInput === "ecma") {
+      renderStage("packing-list");
+      statusMessage.textContent = "ECMA selection saved for this product line.";
+    }
     return;
   }
   if (event.target.matches("[data-packing-input]")) {

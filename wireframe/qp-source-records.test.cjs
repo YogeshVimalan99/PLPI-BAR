@@ -14,11 +14,14 @@ const context = {
   getGeneratedBarTotalPages: () => 14, pclBarRecords: {}, batchCheckerVerifiedRows: {},
   batchCheckerPclGeneratedRows: {}, batchCheckerPclRegulatoryComments: {},
   assemblyRecords: {}, generatedPackingListSnapshots: {}, rpPackWorkflows: {},
+  batchCheckerVerificationHistory: {},
   qpScenarioFixtures: [],
   document: { createElement: () => ({ innerHTML: '', content: { querySelectorAll: () => [] } }) }
 };
 vm.createContext(context);
 for (const [name, next] of [
+  ['getBatchVerificationHistory', 'renderBatchVerificationSummary'],
+  ['renderBatchVerificationSummary', 'saveBatchCheckerVerification'],
   ['renderBatchCheckerPclPages', 'openGeneratePclPopup'],
   ['renderGeneratedPackingListSheet', 'openPackingListPreview'],
   ['renderAssemblyReconciliationRows', 'renderAssemblyRoomWork'],
@@ -68,7 +71,9 @@ context.currentLogin = { user: 'qp.test' };
 context.getAssemblyAuditTimestamp = () => '08 Sep 2026, 14:00';
 context.persistQpReleaseRecords = () => {};
 vm.runInContext(functionSource('getQpCheckOverride', 'updateQpReleaseAvailability'), context);
-assert.equal(context.areAllQpDashboardDocumentsVerified(product), false);
+assert.equal(context.areAllQpDashboardDocumentsVerified(product), true);
+assert.equal(context.getQpReviewChecks(product).length, 7);
+assert(context.getQpReviewChecks(product).every(check => ![4, 8].includes(check.index)));
 context.getQpAutomaticResults(product).forEach((check, index) => {
   if (check.status !== 'Passed') context.acceptQpCheckOverride(index);
 });
@@ -77,13 +82,166 @@ const accepted = Object.values(context.qpReleaseRecords.B1.checkOverrides);
 assert(accepted.length > 0 && accepted.every(item => item.comment === '' && item.user === 'qp.test'));
 assert(context.qpReleaseRecords.B1.auditTrail.every(item => item.originalFinding));
 context.pclBarRecords.B1.comments = 'A different finding';
+assert.equal(context.areAllQpDashboardDocumentsVerified(product), true);
+assert.equal(context.getQpCheckOverride(product, context.getQpAutomaticResults(product)[4]), null);
+const automaticResults = context.getQpAutomaticResults;
+const pendingChecks = automaticResults(product).map((check, index) => index === 1 ? { ...check, status: 'Pending', detail: 'Supplier evidence pending' } : check);
+context.getQpAutomaticResults = () => pendingChecks;
 assert.equal(context.areAllQpDashboardDocumentsVerified(product), false);
-console.log('PASS: optional-comment overrides, audit records, approval gate, changed-finding invalidation.');
+context.acceptQpCheckOverride(1, 'Reviewed supplier evidence');
+assert.equal(context.areAllQpDashboardDocumentsVerified(product), true);
+pendingChecks[1].detail = 'Supplier evidence changed after review';
+assert.equal(context.areAllQpDashboardDocumentsVerified(product), false);
+context.getQpAutomaticResults = automaticResults;
+console.log('PASS: deviation checks removed from approval, pending checks require review, audit and finding invalidation preserved.');
+
+context.qpSelectedDocumentId = '';
+context.getQpReleaseLogId = () => 'REL1';
+vm.runInContext(functionSource('renderQpReferenceComparisons', 'getQpDummyEvidence'), context);
+vm.runInContext(functionSource('renderQpSelectedDashboard', 'renderSystemQpSelectedDashboard'), context);
+const reviewHtml = context.renderQpSelectedDashboard({ id: 'qp-release' });
+assert(reviewHtml.includes('qp-review-redesign'));
+assert(!/Unresolved batch deviations|PCL checks, comments and deviations|<th>Source<\/th>/i.test(reviewHtml));
+const reviewDocuments = context.getQpDocumentPack(product);
+assert.equal(reviewDocuments.length, 12);
+for (const doc of reviewDocuments) {
+  assert(reviewHtml.includes('data-view-qp-document="' + doc.id + '"'));
+  assert(reviewHtml.includes(doc.fileName));
+}
+assert(!reviewHtml.includes('data-download-qp-document'));
+for (const hook of ['data-qp-back-list', 'data-qp-approve-batch', 'data-qp-hold-batch', 'data-qp-banding-batch', 'data-qp-reject-batch']) assert(reviewHtml.includes(hook));
+assert(reviewHtml.includes('BAR / IPC Photo References'));
+assert(reviewHtml.includes('Reviewed by QP'));
+const reconciliationReviewName = context.getQpAutomaticResults(product)[7].name;
+const savedReconciliationReview = context.qpReleaseRecords.B1.checkOverrides[reconciliationReviewName];
+delete context.qpReleaseRecords.B1.checkOverrides[reconciliationReviewName];
+assert(context.renderQpSelectedDashboard({ id: 'qp-release' }).includes('data-qp-accept-check="7"'));
+context.qpReleaseRecords.B1.checkOverrides[reconciliationReviewName] = savedReconciliationReview;
+console.log('PASS: redesigned review retains all 12 documents, previews, downloads, references, review actions and decisions.');
+
+function previewNode(tag) {
+  return {
+    tag, children: [], dataset: {}, attributes: {}, parent: null,
+    classList: { add() {} },
+    get firstChild() { return this.children[0] || null; },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    appendChild(node) {
+      node.remove();
+      node.parent = this;
+      this.children.push(node);
+    },
+    remove() {
+      if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1);
+      this.parent = null;
+    }
+  };
+}
+const filePreviewBody = previewNode('div');
+const filePreviewTitle = {};
+let previewedFile = '', previewCalls = 0, previewPages = [], toolbarCloseRemoved = false;
+filePreviewBody.querySelector = () => previewedFile === 'completed-bar' ? null : {
+  classList: { add() {} }, querySelector: () => ({ remove() { toolbarCloseRemoved = true; } })
+};
+const filePreviewContext = {
+  qpSelectedProduct: product,
+  getQpDocumentPack: () => reviewDocuments,
+  printPreviewBody: filePreviewBody,
+  printPreviewModal: { classList: { contains: () => false } },
+  document: { createElement: previewNode, querySelector: () => filePreviewTitle },
+  renderQpDocumentPreview(id) {
+    previewCalls++;
+    previewedFile = id;
+    toolbarCloseRemoved = false;
+    while (filePreviewBody.firstChild) filePreviewBody.firstChild.remove();
+    previewPages = [previewNode('page-one'), previewNode('page-two')];
+    previewPages.forEach(page => filePreviewBody.appendChild(page));
+  }
+};
+vm.createContext(filePreviewContext);
+vm.runInContext(functionSource('openQpDocumentPreview', 'renderQpDocumentPreview'), filePreviewContext);
+for (const file of reviewDocuments) {
+  filePreviewContext.openQpDocumentPreview(file.id);
+  assert.equal(filePreviewTitle.textContent, 'File Preview — ' + file.name);
+  assert.equal(filePreviewBody.children.length, 1);
+  const shell = filePreviewBody.firstChild;
+  assert.equal(shell.className, 'qp-file-preview-shell');
+  assert.equal(shell.children.length, 2);
+  const [content, footer] = shell.children;
+  assert.equal(content.className, 'qp-file-preview-content');
+  assert.deepStrictEqual(content.children, previewPages);
+  assert.equal(content.tabIndex, 0);
+  assert.equal(footer.tag, 'footer');
+  assert(footer.className.includes('qp-file-preview-footer'));
+  assert.equal(footer.children.length, 1);
+  assert.equal(footer.firstChild.textContent, 'Download');
+  assert.equal(footer.firstChild.dataset.downloadQpDocument, file.id);
+  assert.equal(toolbarCloseRemoved, file.id !== 'completed-bar');
+}
+const renderedPreviews = previewCalls;
+filePreviewContext.openQpDocumentPreview('unknown-file');
+assert.equal(previewCalls, renderedPreviews);
+assert.equal(filePreviewBody.children.length, 1);
+console.log('PASS: View opens all 12 file previews with complete content and one Download action in the footer, including BAR without a toolbar.');
+
+const archiveDownloadRecord = { batch: 'ARCHIVE-1', documents: [
+  { id: 'packing', name: 'PO Packing List', fileName: 'ARCHIVE-1_Packing_List.pdf', html: '<p>Saved packing quantity: 389</p>' },
+  { id: 'decision', name: 'QP Decision History', fileName: 'ARCHIVE-1_QP_Decision.html', html: '<p>Approved by saved.qp</p>' }
+] };
+let downloadedArchive = '', downloadClicks = 0, downloadRemovals = 0, revokedArchiveUrl = '';
+const archivePreviewBody = { innerHTML: '' }, archivePreviewTitle = {};
+const archiveDownloadLink = { click() { downloadClicks++; }, remove() { downloadRemovals++; } };
+const archiveDownloadContext = {
+  window: { batchRecordSelected: 'ARCHIVE-1', setTimeout: handler => handler() },
+  getBatchRecordStore: () => ({ 'ARCHIVE-1': archiveDownloadRecord }),
+  htmlSafe: value => String(value ?? ''), statusMessage: { textContent: '' },
+  printPreviewBody: archivePreviewBody,
+  printPreviewModal: { classList: { remove() {} } }, printPreviewRequest: {},
+  document: {
+    querySelector: () => archivePreviewTitle,
+    styleSheets: [{ cssRules: [{ cssText: 'p { color: #17364d; }' }] }, { get cssRules() { throw new Error('Unavailable stylesheet'); } }],
+    createElement: tag => { assert.equal(tag, 'a'); return archiveDownloadLink; },
+    body: { appendChild() {} }
+  },
+  Blob: class { constructor(parts, options) { this.parts = parts; this.type = options.type; } },
+  URL: {
+    createObjectURL(blob) { downloadedArchive = blob.parts.join(''); assert.equal(blob.type, 'text/html;charset=utf-8'); return 'blob:archived-file'; },
+    revokeObjectURL(url) { revokedArchiveUrl = url; }
+  }
+};
+vm.createContext(archiveDownloadContext);
+vm.runInContext(functionSource('openBatchRecordPreview', 'downloadBatchRecord'), archiveDownloadContext);
+vm.runInContext(functionSource('downloadBatchRecord', 'renderBatchDetails'), archiveDownloadContext);
+archiveDownloadContext.openBatchRecordPreview('packing');
+assert(!archivePreviewBody.innerHTML.includes('preview-toolbar'));
+assert(!archivePreviewBody.innerHTML.includes('data-batch-record-print'));
+assert(archivePreviewBody.innerHTML.includes('Saved packing quantity: 389'));
+assert(archivePreviewBody.innerHTML.includes('<footer class="qp-document-preview-actions qp-file-preview-footer">'));
+assert(archivePreviewBody.innerHTML.includes('data-batch-record-download="packing"'));
+archiveDownloadContext.downloadBatchRecord('packing', 'ARCHIVE-1');
+assert.equal(archiveDownloadLink.download, 'ARCHIVE-1_Packing_List.html');
+assert(downloadedArchive.includes('Saved packing quantity: 389'));
+assert(!downloadedArchive.includes('Approved by saved.qp'));
+assert(downloadedArchive.includes('p { color: #17364d; }'));
+assert.equal(revokedArchiveUrl, 'blob:archived-file');
+archiveDownloadContext.openBatchRecordPreview('all');
+assert(archivePreviewBody.innerHTML.includes('data-batch-record-download="all"'));
+archiveDownloadContext.downloadBatchRecord('all', 'ARCHIVE-1');
+assert.equal(archiveDownloadLink.download, 'ARCHIVE-1_Complete_Batch_Record.html');
+assert(downloadedArchive.includes('Saved packing quantity: 389'));
+assert(downloadedArchive.includes('Approved by saved.qp'));
+assert.equal(downloadClicks, 2);
+assert.equal(downloadRemovals, 2);
+archiveDownloadContext.downloadBatchRecord('unknown-file', 'ARCHIVE-1');
+archiveDownloadContext.downloadBatchRecord('all', 'unknown-batch');
+assert.equal(downloadClicks, 2);
+console.log('PASS: archive preview uses footer Download; individual and complete exports preserve saved contents and ignore missing files.');
 vm.runInContext(source.slice(source.indexOf('var qpScenarioFixtures = ['), source.indexOf('function ensureQpScenarioTestData()')), context);
 for (const fixture of context.qpScenarioFixtures) {
   const batch = { batch: fixture.batch, qpScenario: fixture.batch, quantity: '300', product: fixture.name };
   const results = context.getQpAutomaticResults(batch);
   assert(results.every(check => check.status !== 'Pending'), fixture.batch + ' must not model missing upstream files');
+  assert.equal(context.getQpReviewChecks(batch).length, 7);
+  assert.equal(context.areAllQpDashboardDocumentsVerified(batch), true, fixture.batch + ' must not be blocked by deviation results');
   assert(!/missing|unavailable|incomplete document/i.test(fixture.name));
   for (const id of ['pcl', 'po-packing-list', 'reconciliation']) assert(!context.renderQpSourceDocument(batch, id).includes('No saved'));
 }
@@ -213,6 +371,87 @@ signContext.requestQpProcess11Confirmation();
 signHandlers['[data-process11-sign-yes]']();
 assert.equal(signedCount, 1);
 console.log('PASS: Process 11 confirmation uses modal top layer, short prompt, and explicit confirmation.');
+
+let approvalRenders = 0, approvalPersists = 0, checksReady = true;
+const approvalFields = {
+  '#qp-retention-lot': { value: 'LOT-1' },
+  '#qp-release-comment': { value: 'QP approval note' },
+  '#qp-quantity-released': { value: '389' },
+  '#qp-declaration': { checked: false },
+  '#qp-surplus-status': { value: 'Not applicable' },
+  '#qp-destroyed-by': { value: '' },
+  '.qp-process11-window': {},
+  '[data-qp-process11-sign]': { disabled: false }
+};
+const generatedApprovalBar = {};
+const approvalContext = {
+  qpSelectedProduct: { batch: 'SIGN-1' }, qpChecklistOpen: true,
+  qpReleaseRecords: {}, currentLogin: { user: 'qp.one' },
+  statusMessage: { textContent: '' }, htmlSafe: value => String(value ?? ''),
+  document: { querySelector: selector => approvalFields[selector] || null, querySelectorAll: () => [] },
+  getQpProcess11Data: product => ({ quantityReleased: '389', ...approvalContext.qpReleaseRecords[product.batch]?.process11 }),
+  ensureGeneratedBarRecord: () => generatedApprovalBar,
+  getAssemblyAuditTimestamp: () => '2026-10-02 10:00',
+  areAllQpDashboardDocumentsVerified: () => checksReady,
+  getQpReleaseLogDefaults: () => ({ relId: 'REL-1' }),
+  getQpDocumentPack: () => [],
+  persistQpReleaseRecords: () => { approvalPersists++; },
+  renderQpProcess11BarPage: () => '<form>All approval fields</form>',
+  renderStage: () => { approvalRenders++; }
+};
+vm.createContext(approvalContext);
+for (const [name, next] of [
+  ['renderQpChecklistWindow', 'saveQpProcess11FormState'],
+  ['saveQpProcess11FormState', 'requestQpProcess11Confirmation'],
+  ['signQpProcess11', 'saveQpDocumentReview'],
+  ['updateQpReleaseAvailability', 'collectQpReleaseState'],
+  ['collectQpReleaseState', 'collectQpReleaseLogState'],
+  ['completeQpRelease', 'getBatchRecordStore']
+]) vm.runInContext(functionSource(name, next), approvalContext);
+const signApprovalView = approvalContext.renderQpChecklistWindow({});
+assert(signApprovalView.includes('aria-label="Close QP Final Approval"'));
+assert(signApprovalView.includes('>×</button>'));
+assert.equal((signApprovalView.match(/>Click to Sign</g) || []).length, 1);
+assert(!signApprovalView.includes('Confirm Approval'));
+assert(signApprovalView.includes('All approval fields'));
+approvalContext.updateQpReleaseAvailability();
+assert.equal(approvalFields['[data-qp-process11-sign]'].disabled, false);
+approvalFields['#qp-quantity-released'].value = '1.5';
+approvalContext.signQpProcess11();
+assert(!approvalContext.qpReleaseRecords['SIGN-1'].process11Signoff?.signedAt);
+assert.equal(approvalRenders, 0);
+assert.equal(approvalContext.qpChecklistOpen, true);
+approvalFields['#qp-quantity-released'].value = '389';
+checksReady = false;
+approvalContext.updateQpReleaseAvailability();
+assert.equal(approvalFields['[data-qp-process11-sign]'].disabled, true);
+approvalContext.signQpProcess11();
+assert(!approvalContext.qpReleaseRecords['SIGN-1'].process11Signoff?.signedAt);
+assert.equal(approvalContext.qpChecklistOpen, true);
+checksReady = true;
+approvalContext.signQpProcess11();
+const signedApproval = approvalContext.qpReleaseRecords['SIGN-1'];
+assert.equal(signedApproval.process11Signoff.signedBy, 'qp.one');
+assert.equal(signedApproval.process11.signedAt, '2026-10-02 10:00');
+assert.equal(generatedApprovalBar.process11.signedBy, 'qp.one');
+assert.equal(signedApproval.approved, true);
+assert.equal(signedApproval.decision, 'Certified');
+assert.equal(signedApproval.declarationAccepted, true);
+assert.equal(signedApproval.comments, 'QP approval note');
+assert.equal(signedApproval.auditTrail.length, 1);
+assert(!signedApproval.releaseLogApproved);
+assert.equal(approvalContext.qpChecklistOpen, false);
+assert.equal(approvalContext.qpSelectedProduct, null);
+assert.equal(approvalRenders, 1);
+const persistsAfterApproval = approvalPersists;
+approvalContext.signQpProcess11();
+assert.equal(approvalPersists, persistsAfterApproval);
+assert.equal(approvalRenders, 1);
+approvalContext.qpSelectedProduct = { batch: 'SIGN-1' };
+const approvedView = approvalContext.renderQpChecklistWindow({});
+assert(approvedView.includes('Approved — read only'));
+assert(!approvedView.includes('data-qp-process11-sign'));
+console.log('PASS: single sign action saves signature and approval, closes modal, validates quantity/checks, and prevents repeat approval.');
 
 const certifiedFixtures = {
   bnsProducts: [{ batch: 'EXISTING', product: 'Lumigan eye drops' }],

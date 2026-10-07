@@ -2503,7 +2503,9 @@ select {
   text-align: left !important;
 }
 
-.preqp-mode .preqp-list-search-row {
+.preqp-mode .preqp-list-search-row,
+.release-log-sheet-mode .preqp-list-search-row,
+.qp-release-mode .qp-awaiting-cards .preqp-list-search-row {
   background: #f6f9fc !important;
   border: 1px solid #bed0df !important;
   border-radius: 5px !important;
@@ -2516,20 +2518,63 @@ select {
   padding: 7px 10px !important;
 }
 
-.preqp-mode .preqp-list-search-row .classic-search-label {
+#module-window.release-log-sheet-mode .release-log-filter-row,
+#module-window.qp-release-mode .qp-awaiting-cards .qp-rel-filter-row {
+  align-content: center !important;
+  align-items: center !important;
+  grid-template-columns: repeat(3, max-content) 84px !important;
+  justify-content: start !important;
+  min-height: 46px !important;
+  padding: 8px 10px !important;
+}
+
+#module-window.qp-release-mode .qp-awaiting-cards .qp-rel-filter-row {
+  box-sizing: border-box !important;
+  grid-template-columns: repeat(2, max-content) 84px minmax(max-content, 1fr) !important;
+  min-width: 0 !important;
+  width: auto !important;
+}
+
+#module-window.qp-release-mode .qp-awaiting-cards .qp-rel-filter-row .qp-rel-dashboard-summary {
+  align-items: center;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+#module-window.release-log-sheet-mode .release-log-filter-row > :is(label, button),
+#module-window.qp-release-mode .qp-awaiting-cards .qp-rel-filter-row > :is(label, button) {
+  align-self: center !important;
+  margin: 0 !important;
+}
+
+#module-window.release-log-sheet-mode .release-log-filter-row :is(input, select, button),
+#module-window.qp-release-mode .qp-awaiting-cards .qp-rel-filter-row :is(input, select, button) {
+  box-sizing: border-box !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  margin: 0 !important;
+}
+
+.preqp-mode .preqp-list-search-row .classic-search-label,
+.release-log-sheet-mode .preqp-list-search-row .classic-search-label,
+.qp-release-mode .qp-awaiting-cards .preqp-list-search-row .classic-search-label {
   display: grid !important;
   font: 600 12px Tahoma, Arial, sans-serif !important;
   gap: 7px !important;
   grid-template-columns: max-content 125px !important;
 }
 
-.preqp-mode .preqp-list-search-row .classic-search-input {
+.preqp-mode .preqp-list-search-row .classic-search-input,
+.release-log-sheet-mode .preqp-list-search-row .classic-search-input,
+.qp-release-mode .qp-awaiting-cards .preqp-list-search-row .classic-search-input {
   height: 27px !important;
   min-height: 27px !important;
   width: 125px !important;
 }
 
-.preqp-mode .preqp-list-search-row .classic-search-button {
+.preqp-mode .preqp-list-search-row .classic-search-button,
+.release-log-sheet-mode .preqp-list-search-row .classic-search-button,
+.qp-release-mode .qp-awaiting-cards .preqp-list-search-row .classic-search-button {
   height: 29px !important;
   min-height: 29px !important;
   width: 84px !important;
@@ -6641,6 +6686,11 @@ input[readonly] {
   max-width: none !important;
   overflow: visible !important;
   white-space: nowrap !important;
+}
+
+.qp-release-mode .qp-rel-batch-window .qp-rel-batch-table td {
+  text-align: center !important;
+  vertical-align: middle !important;
 }
 
 /* Controlled QP Release Log Record — paper form layout. */
@@ -17083,28 +17133,12 @@ body:has(#app-confirm-modal.generated-po-signoff-confirm.modal-backdrop:not(.hid
   text-align: left !important;
 }
 
-.release-log-sheet-mode .release-log-filter-row {
-  align-items: center !important;
-  background: #f6f9fc !important;
-  border: 1px solid #bed0df !important;
-  border-radius: 5px !important;
-  column-gap: 10px !important;
-  display: grid !important;
-  grid-template-columns: 280px 210px 140px 84px !important;
-  margin: 10px 12px 8px !important;
-  min-height: 40px !important;
-  padding: 7px 10px !important;
-}
-
-.release-log-sheet-mode .release-log-filter-row label,
 .release-log-sheet-mode .release-log-actions label,
 .release-log-sheet-mode .release-log-scan {
   color: #17384e !important;
   font: 600 11px Tahoma, Arial, sans-serif !important;
 }
 
-.release-log-sheet-mode .release-log-filter-row input,
-.release-log-sheet-mode .release-log-filter-row select,
 .release-log-sheet-mode .release-log-actions select,
 .release-log-sheet-mode .release-log-scan input {
   background: #ffffff !important;
@@ -17113,15 +17147,6 @@ body:has(#app-confirm-modal.generated-po-signoff-confirm.modal-backdrop:not(.hid
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.07) !important;
   height: 28px !important;
   min-height: 28px !important;
-}
-
-.release-log-sheet-mode .release-log-filter-row .classic-button {
-  background: linear-gradient(#1685ad, #087399) !important;
-  border: 1px solid #066487 !important;
-  border-radius: 6px !important;
-  color: #ffffff !important;
-  height: 29px !important;
-  min-height: 29px !important;
 }
 
 .release-log-sheet-mode .release-log-grid-shell {
@@ -25200,6 +25225,31 @@ body .batchchecker-live-layout .batchchecker-selected-actions {
   padding: 4px 12px !important;
   font: 11px Tahoma, sans-serif !important;
 }
+#print-preview-body:has(> .qp-file-preview-shell) {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+#print-preview-body > .qp-file-preview-shell {
+  display: flex;
+  flex-direction: column;
+  height: calc(88vh - 40px);
+  min-height: 0;
+  overflow: hidden;
+}
+.qp-file-preview-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+#print-preview-body .qp-file-preview-footer {
+  justify-content: flex-end;
+  background: #eef5f9;
+  border-top: 1px solid #c4d4df;
+  margin-left: 0 !important;
+  padding: 9px 12px;
+}
 .assembly-modern .assembly-ipc-matrix-scroll { overflow-x: auto; }
 .assembly-modern .assembly-ipc-matrix { width: 100%; border-collapse: collapse; font: 12px Tahoma, sans-serif; color: #163c56; }
 #module-window .assembly-ipc-matrix-scroll { max-width: 100%; min-width: 0; overflow-x: auto; }
@@ -27460,6 +27510,19 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
 
 .qp-release-mode .qp-process11-actions {
   padding: 7px 10px !important;
+  justify-content: flex-end;
+}
+
+.qp-release-mode .qp-process11-header .qp-process11-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
 }
 
 /* Group QP Release Log action and completion state. */
@@ -27586,10 +27649,9 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
 }
 .qp-release-mode .qp-dashboard-document-table th:nth-child(1) { width: 4%; }
 .qp-release-mode .qp-dashboard-document-table th:nth-child(2) { width: 32%; }
-.qp-release-mode .qp-dashboard-document-table th:nth-child(3) { width: 13%; }
-.qp-release-mode .qp-dashboard-document-table th:nth-child(4) { width: 31%; }
-.qp-release-mode .qp-dashboard-document-table th:nth-child(5) { width: 12%; }
-.qp-release-mode .qp-dashboard-document-table th:nth-child(6) { width: 8%; }
+.qp-release-mode .qp-dashboard-document-table th:nth-child(3) { width: 44%; }
+.qp-release-mode .qp-dashboard-document-table th:nth-child(4) { width: 12%; }
+.qp-release-mode .qp-dashboard-document-table th:nth-child(5) { width: 8%; }
 .qp-release-mode .qp-dashboard-document-table th {
   background: #e8f0f5;
   color: #24435b;
@@ -27642,9 +27704,13 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
   margin-top: 2px;
   overflow-wrap: anywhere;
 }
-.qp-release-mode .qp-dashboard-checks-performed {
+.qp-release-mode .qp-dashboard-document-table td.qp-dashboard-checks-performed {
   color: #385568;
-  line-height: 1.25;
+  line-height: 1.35;
+  overflow: visible !important;
+  overflow-wrap: anywhere;
+  text-overflow: clip !important;
+  white-space: normal !important;
 }
 .qp-release-mode .qp-dashboard-checks-performed span {
   display: block;
@@ -27751,6 +27817,33 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
 .qp-auto-classic .qp-digital-document-row.issue-raised { background: #fff0ee !important; color: #85251d !important; border-color: #e5b5b0 !important; }
 .batch-record-module { background: #f3f7fa; border: 1px solid #afc1d0; border-radius: 5px; padding: 12px; color: #17364d; }
 .batch-record-module > table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.batch-record-detail .batch-record-detail-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 12px 8px;
+  padding: 5px 8px;
+  background: #f6f9fc;
+  border: 1px solid #c8d9e5;
+  border-radius: 5px;
+}
+.batch-record-detail .batch-record-detail-header h2 { margin: 0; color: #123d59; font: 700 14px/1.3 Tahoma, Arial, sans-serif; }
+.batch-record-detail .batch-record-documents-shell { margin: 0 12px; border: 1px solid #c3d4e1; border-radius: 5px; overflow: auto; }
+#module-window .batch-record-detail .batch-record-documents-table { width: 100%; min-width: 560px; margin: 0; border-collapse: collapse; table-layout: fixed; font: 12px/1.3 Tahoma, Arial, sans-serif; }
+#module-window .batch-record-detail .batch-record-documents-table :is(th, td) { height: auto !important; padding: 3px 8px !important; vertical-align: middle; overflow-wrap: anywhere; }
+#module-window .batch-record-detail .batch-record-documents-table th { height: 28px !important; font-size: 11px !important; }
+#module-window .batch-record-detail .batch-record-documents-table td { height: 32px !important; font-size: 12px !important; }
+#module-window .batch-record-detail .batch-record-documents-table th:first-child { width: 38%; }
+#module-window .batch-record-detail .batch-record-documents-table th:last-child { width: 88px; }
+#module-window .batch-record-detail .batch-record-documents-table :is(th, td):last-child { text-align: center; }
+#module-window .batch-record-detail .batch-record-documents-table tbody tr:nth-child(odd) td { background: #fff !important; }
+#module-window .batch-record-detail .batch-record-documents-table tbody tr:nth-child(even) td { background: #f7fafc !important; }
+#module-window .batch-record-detail .classic-button { font: 600 11px Tahoma, Arial, sans-serif !important; height: 26px !important; min-height: 26px !important; padding: 0 9px !important; }
+#module-window .batch-record-detail .batch-record-documents-table .classic-button { height: 24px !important; min-height: 24px !important; min-width: 62px !important; }
+@media (max-width: 620px) {
+  .batch-record-detail .batch-record-detail-header { flex-wrap: wrap; }
+}
 .batch-record-module th, .batch-record-module td { padding: 8px; border: 1px solid #c5d6e2; text-align: left; }
 .batch-record-module th { background: #dfecf4; }
 .batch-record-module .qp-rel-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
@@ -27760,7 +27853,6 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
 .batch-record-module .batch-record-search-row input { flex: 0 1 300px; width: 300px; min-width: 0; height: 29px; box-sizing: border-box; }
 .batch-record-module .batch-record-search-row .classic-button { flex: 0 0 auto; min-height: 29px; }
 .batch-record-module .qp-rel-card h3 { font-size: 13px; margin: 0 0 5px; }
-.batch-record-module .batch-record-product-name { font-size: 12px; line-height: 1.4; margin: 0 0 8px; overflow-wrap: anywhere; }
 .batch-record-module .batch-record-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
 .batch-record-module .batch-record-card-footer .classic-button { min-width: 54px; min-height: 26px; padding: 3px 9px; }
 /* Override the shared QP dashboard's fixed minimum card height. */
@@ -27776,9 +27868,25 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
 .batch-record-module .batch-record-card-footer .classic-button { flex-shrink: 0; }
 /* Compact certified-batch cards and aligned decision/print controls. */
 .qp-release-mode .qp-certified-cards .qp-certified-tabs {
-  padding: 10px 12px 8px;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  margin: 0 12px 10px;
+  padding: 0;
   gap: 8px;
   flex-wrap: wrap;
+}
+.qp-release-mode .qp-certified-cards .qp-rel-filter-row {
+  display: flex !important;
+  flex-wrap: wrap;
+  box-sizing: border-box;
+  width: auto !important;
+}
+.qp-release-mode .qp-certified-cards .qp-rel-filter-row .qp-rel-dashboard-summary {
+  align-items: center;
+  margin-left: auto;
+  white-space: nowrap;
 }
 .qp-release-mode .qp-certified-cards .qp-rel-card {
   min-height: 0 !important;
@@ -27802,11 +27910,102 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
   flex-wrap: wrap;
 }
 .qp-release-mode .qp-certified-cards .qp-rel-footer-actions > button { margin-left: 0 !important; }
-.qp-release-mode .qp-awaiting-cards .qp-rel-card { min-height: 0 !important; height: auto !important; padding: 9px 11px !important; align-self: start; }
-.qp-release-mode .qp-awaiting-cards .qp-rel-card-top { padding-bottom: 5px !important; }
-.qp-release-mode .qp-awaiting-cards .qp-rel-card-meta { margin: 7px 0 !important; min-height: 0 !important; grid-template-columns: .65fr 1fr 1fr !important; }
-.qp-release-mode .qp-awaiting-cards .qp-rel-card-meta > div { padding: 5px 7px !important; }
-.qp-release-mode .qp-awaiting-cards .qp-rel-card footer { margin: 0 !important; }
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-grid {
+  gap: 10px !important;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)) !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card {
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 10px !important;
+  box-shadow: 0 1px 4px rgba(16, 47, 73, 0.1) !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-top {
+  align-items: center !important;
+  min-height: 0 !important;
+  padding-bottom: 6px !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-top span {
+  font-size: 11px !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-top em {
+  font-size: 10px !important;
+  white-space: normal !important;
+  text-align: center;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-top em:is(.issue-hold, .banding) {
+  background: #fff4dd !important;
+  border-color: #ead3a5 !important;
+  color: #80500d !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-top em.rejected {
+  background: #fff0f0 !important;
+  border-color: #e7b8b8 !important;
+  color: #9c3131 !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-top em.approved {
+  background: #eef8f0 !important;
+  border-color: #bfd9c4 !important;
+  color: #2e663d !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-meta {
+  align-items: center !important;
+  background: transparent !important;
+  border: 0 !important;
+  gap: 8px !important;
+  grid-template-columns: max-content minmax(0, 1fr) max-content !important;
+  margin: 0 !important;
+  min-height: 0 !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-meta > div {
+  align-items: baseline;
+  border: 0 !important;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-meta span {
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.3 !important;
+  margin-bottom: 0 !important;
+  text-transform: none !important;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card-meta strong {
+  font-size: 16px !important;
+  line-height: 1.3 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+.qp-release-mode .qp-awaiting-cards .qp-rel-card .qp-rel-view-button {
+  font-size: 11px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  min-width: 0 !important;
+  padding: 0 6px !important;
+  width: auto;
+}
+.batch-record-module.batch-record-list .batch-record-search-row { margin: 10px 12px; }
+.batch-record-module .batch-record-list-shell { margin: 12px; }
+.batch-record-module .batch-record-list-table { min-width: 620px; }
+.batch-record-module .batch-record-list-table th:nth-child(1) { width: 25%; }
+.batch-record-module .batch-record-list-table th:nth-child(2) { width: 20%; }
+.batch-record-module .batch-record-list-table th:nth-child(3) { width: 40%; }
+.batch-record-module .batch-record-list-table th:nth-child(4) { width: 15%; }
+.batch-record-module .batch-record-list-table :is(th, td):last-child { text-align: center; }
+@media (max-width: 760px) {
+  .qp-release-mode .qp-awaiting-cards .qp-rel-card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
 .qp-release-mode .qp-auto-classic .qp-digital-summary { grid-template-columns: repeat(3, minmax(75px, 110px)) minmax(120px, 1fr); }
 .qp-auto-classic .qp-reference-comparisons { padding: 0; overflow: hidden; }
 .qp-auto-classic .qp-reference-comparisons summary,
@@ -28163,4 +28362,245 @@ html body .double-check-mode .double-check-scan-panel.preassembly-inline-route-f
   min-height: 0 !important;
   padding: 0 !important;
   width: 100% !important;
+}
+
+/* QP review workspace: batch context, scrollable evidence, fixed decision controls. */
+#module-window.qp-release-mode .qp-review-redesign {
+  background: #ffffff !important;
+  border: 1px solid #b8ccdc !important;
+  border-radius: 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  height: calc(100vh - 160px) !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+}
+.qp-review-redesign .qp-review-context {
+  align-items: center;
+  background: #edf5fa;
+  border-bottom: 1px solid #c3d5e2;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+.qp-review-redesign .qp-review-batch-identity { min-width: 0; }
+.qp-review-redesign .qp-review-batch-identity > strong { color: #123d59; font: 700 14px/1.3 Tahoma, Arial, sans-serif; }
+.qp-review-redesign .qp-review-batch-meta { color: #4b6679; display: flex; flex-wrap: wrap; gap: 6px 14px; font: 11px/1.4 Tahoma, Arial, sans-serif; margin-top: 4px; }
+.qp-review-redesign .qp-review-batch-meta b { color: #173b55; }
+.qp-review-redesign .qp-review-context-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.qp-review-redesign .qp-review-count { background: #fff; border: 1px solid #c8d9e5; border-radius: 4px; color: #47657b; font: 11px Tahoma, Arial, sans-serif; padding: 6px 8px; white-space: nowrap; }
+.qp-review-redesign .qp-review-count b { color: #174769; }
+.qp-review-redesign .qp-review-body {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  padding: 10px;
+}
+.qp-review-redesign .qp-review-body > * + * { margin-top: 10px !important; }
+#module-window .qp-review-redesign .qp-dashboard-documents {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+#module-window .qp-review-redesign .qp-dashboard-section-header { background: #f5f9fc; gap: 10px; padding: 8px 10px; }
+#module-window .qp-review-redesign .qp-dashboard-section-header h3 { font-size: 12px; margin: 0; }
+#module-window .qp-review-redesign .qp-dashboard-table-shell { max-height: none; overflow: auto; }
+#module-window .qp-review-redesign .qp-dashboard-document-table { font: 11px/1.4 Tahoma, Arial, sans-serif !important; min-width: 0; }
+#module-window .qp-review-redesign .qp-dashboard-document-table th:nth-child(1) { width: 4%; }
+#module-window .qp-review-redesign .qp-dashboard-document-table th:nth-child(2) { width: 29%; }
+#module-window .qp-review-redesign .qp-dashboard-document-table th:nth-child(3) { width: 43%; }
+#module-window .qp-review-redesign .qp-dashboard-document-table th:nth-child(4) { width: 10%; }
+#module-window .qp-review-redesign .qp-dashboard-document-table th:nth-child(5) { width: 14%; }
+#module-window .qp-review-redesign .qp-dashboard-document-table :is(th, td) { height: auto !important; padding: 7px 8px !important; vertical-align: middle !important; white-space: normal !important; }
+#module-window .qp-review-redesign .qp-dashboard-document-table td > strong { font-size: 12px; }
+#module-window .qp-review-redesign .qp-dashboard-file-name { font-size: 10px; }
+#module-window .qp-review-redesign .qp-dashboard-checks-performed span { padding-left: 0; }
+#module-window .qp-review-redesign .qp-dashboard-checks-performed span::before { content: none; }
+.qp-review-redesign .qp-document-review-label { color: #657e8f; }
+.qp-review-redesign .qp-dashboard-status.available { background: #f2f6f9; border-color: #c5d5e0; color: #506d80; }
+.qp-review-redesign .qp-review-document-actions { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+#module-window .qp-review-redesign .classic-button { font-size: 11px !important; height: 28px !important; min-height: 28px !important; min-width: 0 !important; padding: 0 9px !important; }
+#module-window .qp-review-redesign .qp-reference-comparisons,
+#module-window .qp-review-redesign .qp-auto-checks { border: 1px solid #bdd0de; border-radius: 5px; margin: 0; }
+#module-window .qp-review-redesign :is(.qp-reference-comparisons, .qp-auto-checks) > summary { background: #f0f6fa; color: #214b67; font: 600 12px Tahoma, Arial, sans-serif; padding: 9px 10px; }
+.qp-review-redesign .qp-auto-checks > summary > span { color: #607c90; float: right; font-size: 11px; font-weight: 400; }
+.qp-review-redesign .qp-review-checks-scroll { overflow: auto; }
+#module-window .qp-review-redesign .qp-system-check-table { table-layout: fixed; }
+#module-window .qp-review-redesign .qp-system-check-table th:nth-child(1) { width: 24%; }
+#module-window .qp-review-redesign .qp-system-check-table th:nth-child(2) { width: 10%; }
+#module-window .qp-review-redesign .qp-system-check-table th:nth-child(3) { width: 43%; }
+#module-window .qp-review-redesign .qp-system-check-table th:nth-child(4) { width: 23%; }
+#module-window .qp-review-redesign .qp-system-check-table :is(th, td) { height: auto !important; padding: 8px !important; white-space: normal !important; overflow-wrap: anywhere; }
+#module-window .qp-review-redesign [data-qp-override-comment] { font-size: 11px !important; min-width: 0; width: 100%; }
+#module-window .qp-review-redesign [data-qp-accept-check] { height: auto !important; margin-top: 5px; padding: 5px 9px !important; }
+#module-window .qp-review-redesign .qp-review-action-bar { background: #f3f8fc !important; border: 0 !important; border-top: 1px solid #bdd0de !important; border-radius: 0 !important; flex: 0 0 auto; gap: 12px; padding: 9px 12px !important; position: static !important; }
+#module-window .qp-review-redesign .qp-review-progress { display: grid; font: 11px/1.4 Tahoma, Arial, sans-serif !important; gap: 2px; }
+.qp-review-redesign .qp-review-progress > strong { color: #1d506e; font-size: 12px; }
+.qp-review-redesign .qp-review-progress > span { color: #668092; }
+#module-window .qp-review-redesign .qp-review-action-buttons { flex-wrap: wrap; gap: 7px !important; }
+#module-window .qp-review-redesign .qp-review-action-buttons > button { min-width: 78px !important; }
+@media (max-width: 1000px) {
+  .qp-review-redesign .qp-review-context { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .qp-review-redesign .qp-review-context-actions { justify-content: flex-start; }
+  #module-window .qp-review-redesign .qp-dashboard-document-table { min-width: 780px; }
+  #module-window .qp-review-redesign .qp-system-check-table { min-width: 780px; }
+}
+@media (max-width: 650px) {
+  #module-window .qp-review-redesign .qp-review-action-bar { align-items: flex-start !important; flex-direction: column; }
+}
+
+/* Keep Release Log generation confirmation compact below the preview. */
+#print-preview-body .release-log-generation-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+#print-preview-body .release-log-generation-actions #preview-print-button {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 96px;
+  max-width: 100%;
+  padding: 6px 18px;
+}
+
+/* Batch Checker: PO search, verification issues and password-confirmed completion. */
+html body #module-window.batch-checker-mode #stage-work-content > .batchchecker-live-layout {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 0 0 auto !important;
+  gap: 10px !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+html body #module-window.batch-checker-mode .batchchecker-live-layout .batchchecker-reference-toolbar.batchchecker-search-fields {
+  margin: 0 !important;
+  flex: 0 0 auto !important;
+}
+html body #module-window.batch-checker-mode .batchchecker-live-layout .batchchecker-check-table-wrap.detailed-list {
+  flex: 0 0 auto !important;
+  height: auto !important;
+  min-height: clamp(220px, 32vh, 320px) !important;
+  max-height: min(480px, 55vh) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: auto !important;
+}
+html body #module-window.batch-checker-mode #stage-work-content > .batchchecker-live-layout .batchchecker-selected-actions {
+  flex: 0 0 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+}
+html body #module-window.batch-checker-mode .batchchecker-live-layout .batchchecker-selected-actions {
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+  padding: 8px 10px !important;
+}
+html body #module-window.batch-checker-mode .batchchecker-selected-actions .classic-button {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 90px !important;
+  margin: 0 !important;
+}
+#batchchecker-completion-modal .confirm-actions,
+#batchchecker-issue-dialog .confirm-actions,
+#batch-check-verify-modal .confirm-actions {
+  justify-content: flex-end !important;
+  gap: 8px;
+}
+#batchchecker-issue-dialog {
+  padding: 0;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  color: #17364d;
+  background: #fff;
+  border: 1px solid #bfd0df;
+  border-radius: 6px;
+  box-shadow: 0 12px 32px #17364d33;
+  font: 12px Tahoma, sans-serif;
+}
+#batchchecker-issue-dialog::backdrop { background: #17364d66; }
+#batchchecker-issue-dialog .confirm-body { padding: 12px; gap: 8px; }
+#batchchecker-issue-dialog .confirm-body > p { margin: 0; }
+#batchchecker-issue-dialog .batchchecker-verification-comment { margin: 0; gap: 4px; }
+#batchchecker-issue-dialog textarea { min-height: 52px; padding: 6px 8px; }
+#batchchecker-issue-dialog .batchchecker-error { min-height: 0; font-size: 11px; }
+#batchchecker-issue-dialog .batchchecker-error:empty { display: none; }
+#batchchecker-issue-dialog .confirm-actions { margin: 0; }
+body .batchchecker-live-layout .batchchecker-reference-toolbar.batchchecker-search-fields {
+  flex-wrap: wrap !important;
+  margin: 10px 0 14px !important;
+  padding: 10px 12px !important;
+  gap: 10px 14px !important;
+  border: 1px solid #bfd0df !important;
+  border-left: 3px solid #293b8f !important;
+  border-radius: 5px;
+  background: #f7fafc !important;
+}
+body .batchchecker-live-layout .batchchecker-reference-toolbar.batchchecker-search-fields label { font-size: 12px !important; }
+body .batchchecker-live-layout .batchchecker-reference-toolbar.batchchecker-search-fields input { width: 110px !important; }
+body .batchchecker-live-layout .batchchecker-reference-toolbar.batchchecker-search-fields .compact-filter-field input { width: 100px !important; }
+.batchchecker-po-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid #bfd0df;
+  border-left: 3px solid #293b8f;
+  border-radius: 5px;
+  background: #f7fafc;
+  color: #183652;
+  font: 12px Tahoma, sans-serif;
+}
+.batchchecker-po-search label { font-weight: 700; }
+.batchchecker-po-search input { width: 220px; }
+.batchchecker-blank-grid {
+  min-height: 330px;
+  margin-top: 12px;
+  border: 1px solid #c5d5e3;
+  border-radius: 5px;
+  background: #f8fafc;
+}
+.batchchecker-verification-comment,
+.batchchecker-password-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  text-align: left;
+  font: 12px Tahoma, sans-serif;
+  color: #183652;
+}
+.batchchecker-verification-comment textarea { width: 100%; box-sizing: border-box; min-height: 65px; resize: vertical; }
+.batchchecker-error { color: #b42318; min-height: 18px; font-size: 12px; }
+.packing-ecma-select { min-width: 130px; width: 100%; color: #17364d; }
+.batchchecker-summary-section { padding: 14px; color: #17364d; }
+.batchchecker-summary-section h3 { font-size: 14px; }
+.batchchecker-summary-section td { white-space: normal; overflow-wrap: anywhere; }
+html body .batchchecker-live-layout .batchchecker-product-list tbody tr.batchchecker-issue-row td { background: #fff4dd !important; color: #7a4e0b !important; }
+html body .batchchecker-live-layout .batchchecker-product-list tbody tr.batchchecker-completed-row td { background: #e3eee8 !important; color: #456152 !important; }
+html body .batchchecker-live-layout .batchchecker-product-list tbody tr.batchchecker-completed-row td:first-child { box-shadow: inset 3px 0 #408260; }
+html body .batchchecker-live-layout .batchchecker-product-list tbody tr.batchchecker-completed-row.selected-row td { background: #d5e6dc !important; }
+.batchchecker-box-label { margin: 24px auto; padding: 20px; border: 2px solid #17364d; width: 420px; max-width: 90%; color: #111; background: #fff; }
+.batchchecker-box-label h2 { font-size: 18px; }
+.batchchecker-box-label table { width: 100%; border-collapse: collapse; }
+.batchchecker-box-label th, .batchchecker-box-label td { padding: 7px; text-align: left; border-bottom: 1px solid #ccd5df; }
+@media (max-width: 600px) { .batchchecker-po-search { flex-wrap: wrap; } }
+#batchchecker-direct-print { display: none; }
+@media print {
+  body.batchchecker-box-print > * { display: none !important; }
+  body.batchchecker-box-print #batchchecker-direct-print { position: static !important; display: block !important; visibility: visible !important; width: 100% !important; height: auto !important; overflow: visible !important; background: #fff !important; padding: 0 !important; }
 }
