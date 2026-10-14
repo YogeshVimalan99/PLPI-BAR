@@ -91,7 +91,7 @@ const stages = [
       "Verify all product and packaging details against the reference sample.",
       "Record manufacturer address details and save.",
       "Save verification and issue comments, then print the PCL with its saved checks.",
-      "Confirm Batch Check with your password to print the box label and send the product to B&S Batch Add."
+      "Confirm Batch Check with your password to complete the line and send the product to B&S Batch Add. Box label printing is a separate action."
     ],
     evidence: ["PCL generation", "Verification check", "Line clearance confirmation"],
     controls: [
@@ -506,22 +506,25 @@ let labelPrintedBatchNumbers = [];
 const LABEL_PRINT_RECORDS_STORAGE_KEY = "plpi-label-print-records";
 const LABEL_MANUAL_COMPLETION_MIGRATION_KEY = "plpi-label-manual-completion-v1";
 let labelPrintRecords = loadLabelPrintRecords();
-let printerSection = "menu";
+let printerSection = "label-list";
 let leafletSelectedProduct = null;
 let leafletPrintedBatchNumbers = [];
 const LEAFLET_PRINT_RECORDS_STORAGE_KEY = "plpi-leaflet-print-records";
 let leafletPrintRecords = loadLeafletPrintRecords();
 let cartonSelectedProduct = null;
 let cartonPrintedBatchNumbers = [];
-let cartonPrintRecords = {};
+const CARTON_PRINT_RECORDS_STORAGE_KEY = "plpi-carton-print-records";
+let cartonPrintRecords = loadPrinterRecords(CARTON_PRINT_RECORDS_STORAGE_KEY);
 let brailleSelectedProduct = null;
 let braillePrintedBatchNumbers = [];
-let braillePrintRecords = {};
+const BRAILLE_PRINT_RECORDS_STORAGE_KEY = "plpi-braille-print-records";
+let braillePrintRecords = loadPrinterRecords(BRAILLE_PRINT_RECORDS_STORAGE_KEY);
 let printerSearch = "";
 let leafletFoldingBatchSearch = "";
 let leafletFoldingMfgSearch = "";
 let leafletFoldingSelectedProduct = null;
-let leafletFoldingRecords = {};
+const LEAFLET_FOLDING_RECORDS_STORAGE_KEY = "plpi-leaflet-folding-records";
+let leafletFoldingRecords = loadPrinterRecords(LEAFLET_FOLDING_RECORDS_STORAGE_KEY);
 let leafletFoldedBatchNumbers = [];
 let preAssemblySelectedProduct = null;
 let preAssemblyCheckedBatchNumbers = [];
@@ -978,7 +981,6 @@ function renderStageStrip() {
   ];
   const sideLaunchers = [
     { label: "Users", icon: "??", inactive: true },
-    { label: "Leaflet Folding", icon: "?", stageId: "leaflet-folding" },
     { label: "Production Controller", icon: "?", stageId: "room-allocation" },
     { label: "Check IN/OUT", icon: "?", stageId: "assembly-room" },
     { label: "Assembly Room", icon: "?", stageId: "assembly-room" },
@@ -1740,6 +1742,7 @@ function renderLabelPrintingDocumentList(product) {
     { type: "mockup", action: "view" },
     { type: "bar", action: "view" }
   ];
+  if (product.routeType === "Reboxing") batchDocuments.push({ type: "reboxing-form", action: "view-reboxing" });
   const continuationPages = [
     { type: "generated-bar-print", action: "generated-bar" },
     { type: "label-attachment", action: "print" },
@@ -1749,14 +1752,19 @@ function renderLabelPrintingDocumentList(product) {
   if (product.routeType === "Reboxing") {
     continuationPages.push({ type: "reboxing-form", action: "print" });
   }
+  const reboxingPrintBlocked = product.routeType === "Reboxing" && !isChangeOfPackSizeComplete(product);
   const renderDocuments = (documents) => documents.map((item) => {
     const document = getApprovedArtworkMetadata(item.type, product);
-    const actionAttributes = item.action === "print"
+    const actionAttributes = item.action === "view-reboxing"
+      ? `data-view-reboxing-form="${product.batch}"`
+      : item.action === "print"
       ? `data-print-continuation-page="${item.type}" data-continuation-batch="${product.batch}"`
       : item.action === "generated-bar"
         ? `data-print-generated-bar="${product.batch}"`
         : `data-view-approved-artwork="${item.type}" data-approved-artwork-batch="${product.batch}"`;
-    return `<button class="label-document-link" type="button" ${actionAttributes}><span class="label-document-icon" aria-hidden="true">&#9635;</span><span class="label-document-text">${document.buttonLabel}</span></button>`;
+    const disabled = reboxingPrintBlocked && ["print", "generated-bar"].includes(item.action) ? "disabled" : "";
+    const label = item.action === "view-reboxing" ? "View Reboxing Form" : document.buttonLabel;
+    return `<button class="label-document-link" type="button" ${actionAttributes} ${disabled}><span class="label-document-icon" aria-hidden="true">&#9635;</span><span class="label-document-text">${label}</span></button>`;
   }).join("");
   return `
     <div class="label-document-group">
@@ -1916,12 +1924,30 @@ function persistLeafletPrintRecords() {
   }
 }
 
+function loadPrinterRecords(storageKey) {
+  try {
+    const saved = window.localStorage.getItem(storageKey);
+    return saved ? JSON.parse(saved) : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function persistPrinterRecords(storageKey, records) {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(records));
+  } catch (error) {
+    return;
+  }
+}
+
 function savePrintRecord(type, batchNumber, record) {
   if (type === "label") labelPrintRecords[batchNumber] = record;
   if (type === "leaflet") leafletPrintRecords[batchNumber] = record;
   if (type === "braille") braillePrintRecords[batchNumber] = record;
   if (type === "label") persistLabelPrintRecords();
   if (type === "leaflet") persistLeafletPrintRecords();
+  if (type === "braille") persistPrinterRecords(BRAILLE_PRINT_RECORDS_STORAGE_KEY, braillePrintRecords);
 }
 
 function getPrintProduct(type, batchNumber) {
@@ -1972,7 +1998,7 @@ function rowExtraHasMissingReason(rowExtras = {}) {
 }
 
 function isPrintItemDone(record, label) {
-  return Boolean((record.itemsPrinted && record.itemsPrinted.includes(label)) || (record.itemCompletions && record.itemCompletions[label]));
+  return Boolean((Array.isArray(record.itemsPrinted) && record.itemsPrinted.includes(label)) || (record.itemCompletions && record.itemCompletions[label]));
 }
 
 function syncTestPrintButtons(type) {
@@ -2234,6 +2260,7 @@ function openUnifiedPrintDialog(type, batchNumber, itemLabel) {
   if (!["label", "leaflet", "braille"].includes(type)) return;
   const product = getPrintProduct(type, batchNumber);
   if (!product) return;
+  if (!requireReboxingFormBeforePrinting(product)) return;
   const requirement = getPrintRequirements(type, product).find((item) => item.label === itemLabel);
   if (!requirement) return;
   const printRecord = getPrintRecord(type, batchNumber);
@@ -2293,6 +2320,7 @@ function confirmUnifiedPrint() {
   const { type, batchNumber, itemLabel } = printPreviewRequest;
   const product = getPrintProduct(type, batchNumber);
   if (!product) return;
+  if (!requireReboxingFormBeforePrinting(product)) return;
   const quantity = Number(document.querySelector("#unified-quantity-to-print")?.value || 0);
   const category = document.querySelector("#unified-print-category")?.value || "";
   const reason = document.querySelector("#unified-print-reason")?.value || "";
@@ -2579,6 +2607,7 @@ function confirmQuantityPrint() {
 function markPrintLineDone(type, batchNumber, itemLabel) {
   const product = getPrintProduct(type, batchNumber);
   if (!product) return;
+  if (!requireReboxingFormBeforePrinting(product)) return;
   const requirement = getPrintRequirements(type, product).find((item) => item.label === itemLabel);
   if (!requirement) return;
   const existing = getPrintRecord(type, batchNumber);
@@ -2917,22 +2946,28 @@ function completeLabelPrintItem(batchNumber, itemLabel) {
 function finalizeLabelPrintingBatch(batchNumber) {
   const product = bnsProducts.find((item) => item.batch === batchNumber);
   if (!product) return;
+  if (!requireReboxingFormBeforePrinting(product)) return;
   const record = labelPrintRecords[batchNumber] || {};
-  const requirements = getLabelRequirements(product);
-  if (!requirements.every((item) => isPrintItemDone(record, item.label))) {
-    statusMessage.textContent = "Print every label before selecting Print Done.";
+  const progress = getUnifiedPrinterProgress(product);
+  if (!progress.allDone) {
+    statusMessage.textContent = "Complete label printing, leaflet printing, the applicable carton or braille work, and leaflet folding before selecting Print Done.";
     return;
   }
+  if (record.printingFinalized) return;
   const completedAt = getAssemblyAuditTimestamp();
   const completedBy = currentLogin ? currentLogin.user : "label.print";
-  labelPrintRecords[batchNumber] = { ...record, finalized: true, finalizedAt: completedAt, finalizedBy: completedBy };
+  labelPrintRecords[batchNumber] = { ...record, finalized: true, printingFinalized: true, printingStatus: "Completed", finalizedAt: completedAt, finalizedBy: completedBy };
   persistLabelPrintRecords();
   if (!labelPrintedBatchNumbers.includes(batchNumber)) labelPrintedBatchNumbers.push(batchNumber);
-  auditPrinterAction("Label Printing Print Done", product, `Batch printing finalized by ${completedBy} at ${completedAt}; total printed: ${record.printedQuantity || product.quantity}; extras: ${JSON.stringify(record.rowExtras || {})}.`);
+  if (!leafletPrintedBatchNumbers.includes(batchNumber)) leafletPrintedBatchNumbers.push(batchNumber);
+  if (product.routeType === "Reboxing" && !cartonPrintedBatchNumbers.includes(batchNumber)) cartonPrintedBatchNumbers.push(batchNumber);
+  if (product.routeType === "Relabelling" && product.brailleRequired && !braillePrintedBatchNumbers.includes(batchNumber)) braillePrintedBatchNumbers.push(batchNumber);
+  if (!leafletFoldedBatchNumbers.includes(batchNumber)) leafletFoldedBatchNumbers.push(batchNumber);
+  auditPrinterAction("Printer Print Done", product, `All applicable printing, carton issue, and leaflet folding completed by ${completedBy} at ${completedAt}; batch released to Pre Assembly.`);
   labelSelectedProduct = null;
   printerSection = "label-list";
   renderStage("label-printing");
-  statusMessage.textContent = `Batch ${batchNumber} printing completed and retained in the queue for review and Test Print.`;
+  statusMessage.textContent = `Batch ${batchNumber} status: Printing Completed. Removed from the Printer work queue and available to Pre Assembly.`;
 }
 function completeLabelPrinting() {
   if (!labelSelectedProduct) return;
@@ -3041,6 +3076,7 @@ function completeLeafletPrinting() {
 function printCartons(batchNumber) {
   const product = bnsProducts.find((item) => item.batch === batchNumber);
   if (!product) return;
+  if (!requireReboxingFormBeforePrinting(product)) return;
   const extraQty = document.querySelector("[data-carton-extra-qty]");
   const extraReason = document.querySelector("[data-carton-extra-reason]");
   const locationInput = document.querySelector("[data-carton-location]");
@@ -3079,6 +3115,7 @@ function printCartons(batchNumber) {
         { quantity: extraQuantity, reason, user: extraIssuedBy, dateTime: extraIssuedAt }
       ]
     };
+    persistPrinterRecords(CARTON_PRINT_RECORDS_STORAGE_KEY, cartonPrintRecords);
     auditPrinterAction("Extra Cartons Issued", product, `Extra quantity: ${extraQuantity}; reason: ${reason}; issued by ${extraIssuedBy} at ${extraIssuedAt}.`);
     renderStage("label-printing");
     statusMessage.textContent = `${extraQuantity} extra carton${Number(extraQuantity) === 1 ? "" : "s"} issued and logged for batch ${batchNumber}.`;
@@ -3101,6 +3138,7 @@ function printCartons(batchNumber) {
     printedAt: confirmedAt,
     printedBy: confirmedBy
   };
+  persistPrinterRecords(CARTON_PRINT_RECORDS_STORAGE_KEY, cartonPrintRecords);
   auditPrinterAction("Carton Issue Confirmed", product, `Required quantity: ${requiredQuantity}; extra quantity: ${extraQuantity}; reason: ${reason || "N/A"}; location: ${locationInput ? locationInput.value || product.warehouse || "N/A" : product.warehouse || "N/A"}; confirmed by ${confirmedBy} at ${confirmedAt}.`);
   renderStage("label-printing");
   statusMessage.textContent = `Carton issue confirmed for batch ${batchNumber}.`;
@@ -3108,6 +3146,7 @@ function printCartons(batchNumber) {
 
 function openCartonExtraIssueDialog(batchNumber) {
   const product = bnsProducts.find((item) => item.batch === batchNumber);
+  if (!requireReboxingFormBeforePrinting(product)) return;
   const record = cartonPrintRecords[batchNumber] || {};
   if (!product || !(record.printed || isPrintItemDone(record, "Issued Carton"))) {
     statusMessage.textContent = "Confirm the required carton quantity before issuing extras.";
@@ -3170,6 +3209,7 @@ function confirmCartonExtraIssue() {
       { quantity, reason, user: issuedBy, dateTime: issuedAt }
     ]
   };
+  persistPrinterRecords(CARTON_PRINT_RECORDS_STORAGE_KEY, cartonPrintRecords);
   auditPrinterAction("Extra Cartons Issued", product, `Extra quantity: ${quantity}; reason: ${reason}; issued by ${issuedBy} at ${issuedAt}.`);
   closePrintPreview();
   renderStage("label-printing");
@@ -3214,6 +3254,7 @@ function printBraille(batchNumber) {
     extraReason: extraReason ? extraReason.value || "N/A" : "N/A",
     printedAt: itemPrintedAt
   };
+  persistPrinterRecords(BRAILLE_PRINT_RECORDS_STORAGE_KEY, braillePrintRecords);
   auditPrinterAction("Braille Printed", product, `Quantity printed: ${printedQuantity || product.brailleQuantity || product.quantity}; extra quantity: ${extraQty ? extraQty.value || "0" : "0"}; reason: ${extraReason ? extraReason.value || "N/A" : "N/A"}.`);
   renderStage("label-printing");
   statusMessage.textContent = `Braille printed for batch ${batchNumber}. Ready for sign off.`;
@@ -3225,6 +3266,7 @@ function completeBraillePrinting() {
   const record = braillePrintRecords[batchNumber] || {};
   const rowExtras = collectRowExtras("braille");
   braillePrintRecords[batchNumber] = { ...record, rowExtras };
+  persistPrinterRecords(BRAILLE_PRINT_RECORDS_STORAGE_KEY, braillePrintRecords);
   if (!braillePrintedBatchNumbers.includes(batchNumber)) {
     braillePrintedBatchNumbers.push(batchNumber);
   }
@@ -3238,10 +3280,32 @@ function completeBraillePrinting() {
   }, 1200);
 }
 
+function openLeafletFoldingConfirmation(batchNumber) {
+  const product = bnsProducts.find((item) => item.batch === batchNumber);
+  if (!product || !requireReboxingFormBeforePrinting(product)) return;
+  if (getUnifiedPrinterProgress(product).foldingDone) return;
+  leafletFoldingSelectedProduct = product;
+  requestAppConfirmation(
+    () => {
+      if (leafletFoldingSelectedProduct?.batch === batchNumber) completeLeafletFolding();
+    },
+    "Confirm Leaflet Folding",
+    `Mark leaflet folding as done for batch ${batchNumber}?`,
+    "",
+    "Yes"
+  );
+}
+
 function completeLeafletFolding() {
   if (!leafletFoldingSelectedProduct) return;
   const product = leafletFoldingSelectedProduct;
   const batchNumber = product.batch;
+  const progress = getUnifiedPrinterProgress(product);
+  if (!progress.formDone) {
+    statusMessage.textContent = "Complete the reboxing form before leaflet folding.";
+    return;
+  }
+  if (progress.foldingDone) return;
   const now = getAssemblyAuditTimestamp();
   const user = currentLogin ? currentLogin.user : "leaflet.fold";
   const quantity = Number(product.leafletQuantity || product.quantity || 0);
@@ -3251,10 +3315,10 @@ function completeLeafletFolding() {
     quantity,
     countConfirmed: true
   };
-  if (!leafletFoldedBatchNumbers.includes(batchNumber)) leafletFoldedBatchNumbers.push(batchNumber);
+  persistPrinterRecords(LEAFLET_FOLDING_RECORDS_STORAGE_KEY, leafletFoldingRecords);
   auditPrinterAction("Leaflet Folding Done", product, `Quantity ${quantity} confirmed by ${user} at ${now}.`);
-  renderStage("leaflet-folding");
-  statusMessage.textContent = `Leaflet Folding marked Done for batch ${batchNumber}.`;
+  renderStage(labelSelectedProduct?.batch === batchNumber ? "label-printing" : "leaflet-folding");
+  statusMessage.textContent = `Leaflet Folding marked Done for batch ${batchNumber}. Select Print Done after all required work is complete.`;
 }
 
 function confirmSignoff() {
@@ -3328,7 +3392,7 @@ function submitLogin() {
     return;
   }
   if (stage.id === "label-printing") {
-    printerSection = "menu";
+    printerSection = "label-list";
     labelSelectedProduct = null;
     leafletSelectedProduct = null;
     cartonSelectedProduct = null;
@@ -5963,7 +6027,7 @@ function completeBatchCheckerLine(password) {
     if (error) error.textContent = "The verification/PCL has changed. Review the line before confirming.";
     return false;
   }
-  const record = markBatchCheckerLabelPrinted(row, "Box Label");
+  const record = { user: currentLogin?.user || "batch.checker", dateTime: getAssemblyAuditTimestamp() };
   addCompletedLineToBns(row);
   batchCheckerCompletedRows[key] = { user: record.user, dateTime: record.dateTime };
   batchCheckerPclGeneratedRows[key].addedToBns = true;
@@ -5971,8 +6035,7 @@ function completeBatchCheckerLine(password) {
   document.querySelector("#batchchecker-completion-modal")?.remove();
   batchCheckerPendingCompletion = null;
   renderStage("batch-checker");
-  printBatchCheckerBoxLabel(row);
-  statusMessage.textContent = `Box label printed for ${row.batchNo}. Product added to B&S Batch Add; the line is locked.`;
+  statusMessage.textContent = `Batch Check complete for ${row.batchNo}. The line remains visible in Batch Checker and is available in B&S Batch Add.`;
   return true;
 }
 
@@ -6458,7 +6521,7 @@ function renderBatchCheckerWork(stage) {
       <div class="batchchecker-live-layout">
         ${renderBatchCheckerFilters()}
         <div class="batchchecker-check-table-wrap detailed-list batchchecker-empty-workspace"><table class="classic-table batchchecker-initial-table"><thead><tr><th>Select</th><th>Manufacturer</th><th>Product Mockup</th><th>Raw Pack Scans</th></tr></thead><tbody></tbody></table></div>
-        <div class="batchchecker-selected-actions"><button class="classic-button primary" id="batchchecker-btn-check" disabled>Verification</button><button class="classic-button primary" id="batchchecker-generate-pcl" disabled>Print PCL</button><button class="classic-button primary" id="batchchecker-final-check" disabled>Batch Check</button><button class="classic-button" id="batchchecker-generate-pcl-cold" disabled>Print PCL Cold Chain Continuation</button><button class="classic-button" id="batchchecker-print-box" disabled>Reprint Box Label</button></div>
+        <div class="batchchecker-selected-actions"><button class="classic-button primary" id="batchchecker-btn-check" disabled>Verification</button><button class="classic-button primary" id="batchchecker-generate-pcl" disabled>Print PCL</button><button class="classic-button primary" id="batchchecker-final-check" disabled>Batch Check</button><button class="classic-button" id="batchchecker-generate-pcl-cold" disabled>Print PCL Cold Chain Continuation</button><button class="classic-button" id="batchchecker-print-box" disabled>Print Box Label</button></div>
       </div>
     `;
   }
@@ -6584,7 +6647,7 @@ function renderBatchCheckerWork(stage) {
         <button class="classic-button primary" type="button" id="batchchecker-generate-pcl">${selectedRow && batchCheckerPclGeneratedRows[getBatchCheckerRowKey(selectedRow)] ? "Reprint PCL" : "Print PCL"}</button>
         <button class="classic-button primary" type="button" id="batchchecker-final-check">Batch Check</button>
         <button class="classic-button" type="button" id="batchchecker-generate-pcl-cold">${selectedRow && batchCheckerColdPclPrintedRows[getBatchCheckerRowKey(selectedRow)] ? "Reprint PCL Cold Chain Continuation" : "Print PCL Cold Chain Continuation"}</button>
-        <button class="classic-button" type="button" id="batchchecker-print-box">Reprint Box Label</button>
+        <button class="classic-button" type="button" id="batchchecker-print-box">${selectedRow && batchCheckerPrintedLabelRows[getBatchCheckerRowKey(selectedRow)] ? "Reprint Box Label" : "Print Box Label"}</button>
       </div>
     </div>
   `;
@@ -7118,6 +7181,63 @@ function isChangeOfPackSizeComplete(product) {
   const receivedComplete = Boolean(received.ecma && received.packSize && received.blisterPerPack && received.qty && received.totalBlisters && received.initials);
   const assembledComplete = Boolean(assembled.ecma && assembled.packSize && assembled.blisterPerPack && assembled.finishedQty && assembled.initials);
   return Boolean(receivedComplete && assembledComplete);
+}
+
+function viewReboxingForm(batchNumber) {
+  if (labelSelectedProduct?.batch !== batchNumber) return;
+  openReboxingFormPopup(batchNumber);
+  statusMessage.textContent = `Change of Pack Size form opened for batch ${batchNumber}.`;
+}
+
+function openReboxingFormPopup(batchNumber) {
+  const product = bnsProducts.find((item) => item.batch === batchNumber);
+  if (!product || product.routeType !== "Reboxing") return;
+  const labelRecord = labelPrintRecords[batchNumber] || {};
+  const formHtml = renderChangeOfPackSizeForm(batchNumber, Boolean(labelRecord.printingFinalized), null);
+  const complete = isChangeOfPackSizeComplete(product);
+  document.querySelector("#reboxing-form-modal")?.remove();
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="modal-backdrop" id="reboxing-form-modal" data-reboxing-batch="${htmlSafe(batchNumber)}" role="dialog" aria-modal="true" aria-labelledby="reboxing-form-modal-title">
+      <div class="reboxing-form-modal-window">
+        <div class="internal-title">
+          <span id="reboxing-form-modal-title">Reboxing Form - ${htmlSafe(batchNumber)}</span>
+          <button type="button" class="close-button" data-reboxing-popup-close>X</button>
+        </div>
+        <div class="reboxing-form-modal-body">${formHtml}</div>
+        <div class="reboxing-form-modal-footer">
+          <span>${complete ? "Form complete. Printing is available." : "Fill and sign Received As and Assembled As before printing."}</span>
+          <button class="classic-button primary" type="button" data-reboxing-popup-continue ${complete ? "" : "disabled"}>Continue Printing</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function closeReboxingFormPopup() {
+  document.querySelector("#reboxing-form-modal")?.remove();
+  if (currentStageId === "label-printing" && labelSelectedProduct) renderStage("label-printing");
+}
+
+function updateReboxingFormPopupAvailability(batchNumber) {
+  const modal = document.querySelector("#reboxing-form-modal");
+  if (!modal || modal.dataset.reboxingBatch !== batchNumber) return;
+  const product = bnsProducts.find((item) => item.batch === batchNumber);
+  const complete = isChangeOfPackSizeComplete(product);
+  const continueButton = modal.querySelector("[data-reboxing-popup-continue]");
+  if (continueButton) continueButton.disabled = !complete;
+  const message = modal.querySelector(".reboxing-form-modal-footer span");
+  if (message) message.textContent = complete ? "Form complete. Printing is available." : "Fill and sign Received As and Assembled As before printing.";
+}
+
+function showReboxingFormRequiredPopup(product) {
+  if (!product || product.routeType !== "Reboxing" || isChangeOfPackSizeComplete(product)) return;
+  openReboxingFormPopup(product.batch);
+  statusMessage.textContent = `Complete and sign the reboxing form before printing batch ${product.batch}.`;
+}
+
+function requireReboxingFormBeforePrinting(product) {
+  if (!product || product.routeType !== "Reboxing" || isChangeOfPackSizeComplete(product)) return true;
+  showReboxingFormRequiredPopup(product);
+  return false;
 }
 
 function renderChangeOfPackSizeForm(batchNumber, isReadOnly, stage, isQcSignOnly = false) {
@@ -8341,6 +8461,7 @@ function getLabelPrintingProducts() {
   const seen = new Set();
   return bnsProducts
     .filter((product) => generatedBatchNumbers.includes(product.batch))
+    .filter((product) => !labelPrintRecords[product.batch]?.printingFinalized)
     .map((product) => combinedBarProducts[product.batch] || product)
     .filter((product) => !seen.has(product.batch) && seen.add(product.batch));
 }
@@ -8477,9 +8598,11 @@ function renderLeafletFoldingWork(stage) {
 }
 
 function getPreAssemblyProducts() {
-  const completedProducts = bnsProducts.filter((product) => leafletFoldedBatchNumbers.includes(product.batch));
-  const sourceProducts = completedProducts.length ? completedProducts : [bnsProducts[0]];
-  return sourceProducts.filter((product) => matchesBatchOrMfgLot(product, preAssemblySearch));
+  const seen = new Set();
+  return bnsProducts
+    .filter((product) => Boolean(labelPrintRecords[product.batch]?.printingFinalized))
+    .filter((product) => !seen.has(product.batch) && seen.add(product.batch))
+    .filter((product) => matchesBatchOrMfgLot(product, preAssemblySearch));
 }
 
 function renderPreAssemblyList() {
@@ -13350,6 +13473,7 @@ function renderGeneratedBarDocument(product) {
 
 function openGeneratedBarPreview(batchNumber, allowPrint = false) {
   const product = getGeneratedBarProduct(batchNumber);
+  if (allowPrint && currentStageId === "label-printing" && !requireReboxingFormBeforePrinting(product)) return;
   if (product && !generatedBarRecords[batchNumber]) {
     ensureGeneratedBarRecord(product);
   }
@@ -13380,6 +13504,7 @@ function openGeneratedBarPreview(batchNumber, allowPrint = false) {
 function printGeneratedBarRecord() {
   if (printPreviewRequest?.workflowMode !== "generated-bar-print") return;
   const product = printPreviewRequest.product;
+  if (currentStageId === "label-printing" && !requireReboxingFormBeforePrinting(product)) return;
   const user = currentLogin ? currentLogin.user : "printer.user";
   const dateTime = getAssemblyAuditTimestamp();
   const hasChangeOfPackSizeAttachment = product.routeType === "Reboxing" && Boolean(changeOfPackSizeData[product.batch]);
@@ -13428,6 +13553,7 @@ function renderContinuationPageDocument(type, product) {
 function printContinuationPage(type, batchNumber) {
   const product = getGeneratedBarProduct(batchNumber);
   if (!product) return;
+  if (currentStageId === "label-printing" && !requireReboxingFormBeforePrinting(product)) return;
   const continuationDocument = getApprovedArtworkMetadata(type, product);
   printPreviewRequest = { workflowMode: "continuation-page", type, batchNumber, product };
   document.querySelector("#print-preview-title").textContent = continuationDocument.title;
@@ -13445,6 +13571,7 @@ function printContinuationPage(type, batchNumber) {
 function confirmContinuationPagePrint() {
   if (printPreviewRequest?.workflowMode !== "continuation-page") return;
   const { type, product } = printPreviewRequest;
+  if (currentStageId === "label-printing" && !requireReboxingFormBeforePrinting(product)) return;
   const continuationDocument = getApprovedArtworkMetadata(type, product);
   const user = currentLogin ? currentLogin.user : "printer.user";
   const dateTime = getAssemblyAuditTimestamp();
@@ -13546,11 +13673,31 @@ function getPrintingModuleStatus(type, product) {
   return "Active";
 }
 
+function getUnifiedPrinterProgress(product) {
+  const batchNumber = product.batch;
+  const labelRecord = labelPrintRecords[batchNumber] || {};
+  const leafletRecord = leafletPrintRecords[batchNumber] || {};
+  const cartonRecord = cartonPrintRecords[batchNumber] || {};
+  const brailleRecord = braillePrintRecords[batchNumber] || {};
+  const labelsDone = getLabelRequirements(product).every((item) => isPrintItemDone(labelRecord, item.label));
+  const leafletsDone = getLeafletRequirements(product).every((item) => isPrintItemDone(leafletRecord, item.label));
+  const routeDone = product.routeType === "Reboxing"
+    ? Boolean(cartonRecord.printed || isPrintItemDone(cartonRecord, "Issued Carton"))
+    : product.routeType === "Relabelling" && product.brailleRequired
+      ? getBrailleRequirements(product).every((item) => isPrintItemDone(brailleRecord, item.label))
+      : true;
+  const foldingDone = Boolean(leafletFoldingRecords[batchNumber]?.dateTime);
+  const formDone = isChangeOfPackSizeComplete(product);
+  return { formDone, labelsDone, leafletsDone, routeDone, foldingDone, allDone: formDone && labelsDone && leafletsDone && routeDone && foldingDone };
+}
+
 function getLabelQueueWorkflowStatus(product) {
   const batchNumber = product.batch;
   const record = labelPrintRecords[batchNumber] || {};
-  if (!labelPrintedBatchNumbers.includes(batchNumber)) {
-    const hasProgress = record.savedAt || record.printed || (record.itemsPrinted || []).length || Object.keys(record.testPrints || {}).length;
+  if (!record.printingFinalized) {
+    const hasProgress = record.savedAt || record.printed || (record.itemsPrinted || []).length || Object.keys(record.testPrints || {}).length
+      || leafletPrintRecords[batchNumber]?.printed || cartonPrintRecords[batchNumber]?.printed
+      || braillePrintRecords[batchNumber]?.printed || leafletFoldingRecords[batchNumber]?.dateTime;
     return hasProgress ? "In Progress" : "Active";
   }
   if (qpCertifiedBatchNumbers.includes(batchNumber)) return "QP Certified";
@@ -13561,10 +13708,6 @@ function getLabelQueueWorkflowStatus(product) {
   if (productionAllocatedBatchNumbers.includes(batchNumber)) return "Assembly";
   if (preAssemblyCheckedBatchNumbers.includes(batchNumber)) return "Production Controller";
   if (leafletFoldedBatchNumbers.includes(batchNumber)) return "Pre Assembly";
-  if (product.leafletRequired && !leafletPrintedBatchNumbers.includes(batchNumber)) return "Leaflet Printing";
-  if (product.routeType === "Reboxing" && !cartonPrintedBatchNumbers.includes(batchNumber)) return "Carton Issuing";
-  if (product.routeType === "Relabelling" && product.brailleRequired && !braillePrintedBatchNumbers.includes(batchNumber)) return "Braille Printing";
-  if (product.leafletRequired) return "Leaflet Folding";
   return "Pre Assembly";
 }
 
@@ -13573,6 +13716,7 @@ function getPrinterStatusClass(status) {
 }
 
 function getPrintingStatusFromListTitle(title, product) {
+  if (title === "Printing Stage") return getLabelQueueWorkflowStatus(product);
   if (title === "Leaflet Printing List") return getPrintingModuleStatus("leaflet", product);
   if (title === "Carton Issuing List") return getPrintingModuleStatus("carton", product);
   if (title === "Braille Printing List") return getPrintingModuleStatus("braille", product);
@@ -13589,33 +13733,7 @@ function getPrintingMenuCounts(type, products) {
 }
 
 function renderPrinterMenu() {
-  const modules = [
-    { title: "Label Printing", type: "label", section: "label-list", products: getLabelPrintingProducts() },
-    { title: "Leaflet Printing", type: "leaflet", section: "leaflet-list", products: getLeafletPrintingProducts() },
-    { title: "Carton Issuing", type: "carton", section: "carton-list", products: getCartonPrintingProducts() },
-    { title: "Braille Printing", type: "braille", section: "braille-list", products: getBraillePrintingProducts() }
-  ];
-  return `
-    <div class="printer-menu-layout">
-      <section class="printer-menu-window">
-        <div class="printer-menu-title">Printer</div>
-        <div class="printer-option-grid">
-          ${modules.map((module) => {
-            const counts = getPrintingMenuCounts(module.type, module.products);
-            return `
-              <button class="printer-option classic-button" type="button" data-printer-section="${module.section}">
-                <div class="printer-option-header">
-                  <strong>${module.title}</strong>
-                </div>
-                <div class="printer-option-counts">
-                  <span class="printer-option-count printer-option-active"><b>${counts.active}</b><em>Active</em></span>
-                  <span class="printer-option-count printer-option-progress"><b>${counts.inProgress}</b><em>In Progress</em></span>
-                </div>
-              </button>`;
-          }).join("")}
-        </div>
-      </section>
-    </div>`;
+  return renderPrinterBatchList("Printing Stage", getLabelPrintingProducts(), "No batches available for printing.", "data-open-label-print");
 }
 
 function renderPrinterBatchList(title, products, emptyText, rowAction) {
@@ -13686,43 +13804,44 @@ filteredProducts.length
 }
 
 function renderLabelPrintingWork(stage) {
-  if (printerSection === "menu") return renderPrinterMenu();
-  if (printerSection === "label-list") {
+  if (printerSection !== "label-detail" || !labelSelectedProduct) {
     labelSelectedProduct = null;
-    return renderPrinterBatchList("Label Printing List", getLabelPrintingProducts(), "No batches available for Label Printing.", "data-open-label-print");
+    return renderPrinterMenu();
   }
-  if (printerSection === "leaflet-list") {
-    leafletSelectedProduct = null;
-    return renderPrinterBatchList("Leaflet Printing List", getLeafletPrintingProducts(), "No batches available for Leaflet Printing.", "data-open-leaflet-print");
-  }
-  if (printerSection === "carton-list") {
-    cartonSelectedProduct = null;
-    return renderPrinterBatchList("Carton Issuing List", getCartonPrintingProducts(), "No reboxing batches available for Carton Issuing.", "data-open-carton-print");
-  }
-  if (printerSection === "braille-list") {
-    brailleSelectedProduct = null;
-    return renderPrinterBatchList("Braille Printing List", getBraillePrintingProducts(), "No relabelling batches available for Braille Printing.", "data-open-braille-print");
-  }
-  if (printerSection === "leaflet-detail") return renderLeafletPrintingTask(stage);
-  if (printerSection === "carton-detail") return renderCartonPrintingTask(stage);
-  if (printerSection === "braille-detail") return renderBraillePrintingTask(stage);
-  if (!labelSelectedProduct) return renderPrinterMenu();
 
   const product = labelSelectedProduct;
   const labelRequirements = getLabelRequirements(product);
   let labelRecord = labelPrintRecords[product.batch] || {};
-  if (labelPrintedBatchNumbers.includes(product.batch) && !Array.isArray(labelRecord.itemsPrinted)) {
-    const historicUser = labelRecord.printedBy || "printer.user";
-    const historicTime = labelRecord.printedAt || labelRecord.dateTime || "24 Jun 2026, 10:30:00";
-    const historicItems = getLabelRequirements(product).map((item) => item.label);
-    labelRecord = {
-      ...labelRecord,
-      printed: true,
-      itemsPrinted: historicItems,
-      itemCompletions: Object.fromEntries(historicItems.map((label) => [label, { user: historicUser, dateTime: historicTime, status: "Printed" }]))
-    };
+  if (labelRecord.itemsPrinted && !Array.isArray(labelRecord.itemsPrinted)) {
+    labelRecord = { ...labelRecord, itemsPrinted: [], printed: false, finalized: false };
     labelPrintRecords[product.batch] = labelRecord;
     persistLabelPrintRecords();
+  }
+  // Older versions inferred all label lines from a batch-level stage flag. That is not
+  // evidence of an actual print, so discard only those recognisable inferred entries.
+  if (!labelRecord.printingFinalized && Array.isArray(labelRecord.itemsPrinted)) {
+    const legacyTimes = new Set(["24 Jun 2026, 10:30:00", "17 Jun 2026, 10:35:41"]);
+    const inferredLabels = labelRecord.itemsPrinted.filter((label) => {
+      const completion = (labelRecord.itemCompletions || {})[label];
+      return completion && legacyTimes.has(completion.dateTime)
+        && completion.status === "Printed"
+        && completion.user === (labelRecord.printedBy || "printer.user")
+        && Object.keys(completion).every((key) => ["user", "dateTime", "status"].includes(key))
+        && !(labelRecord.printRuns || {})[label];
+    });
+    if (inferredLabels.length) {
+      const itemCompletions = { ...(labelRecord.itemCompletions || {}) };
+      inferredLabels.forEach((label) => delete itemCompletions[label]);
+      labelRecord = {
+        ...labelRecord,
+        itemsPrinted: labelRecord.itemsPrinted.filter((label) => !inferredLabels.includes(label)),
+        itemCompletions,
+        printed: false,
+        finalized: false
+      };
+      labelPrintRecords[product.batch] = labelRecord;
+      persistLabelPrintRecords();
+    }
   }
   const savedQuantities = labelRecord.quantities || [];
   const labelRowExtras = labelRecord.rowExtras || {};
@@ -13731,22 +13850,20 @@ function renderLabelPrintingWork(stage) {
     return saved ? saved.quantity : item.quantity;
   };
 
-  const hasLabelPrintingStarted = Boolean(
-    Object.keys(labelRecord.itemCompletions || {}).length
-    || Object.values(labelRecord.itemPrintTotals || {}).some((quantity) => Number(quantity || 0) > 0)
-    || (labelRecord.printRuns && Object.keys(labelRecord.printRuns).length)
-  );
-  const reboxingFormHtml = product.routeType === "Reboxing"
-    ? renderChangeOfPackSizeForm(product.batch, hasLabelPrintingStarted || labelRecord.finalized, stage)
-    : "";
   const formValidForPrint = isChangeOfPackSizeComplete(product);
-  const allLabelsPrinted = labelRequirements.every((item) => isPrintItemDone(labelRecord, item.label));
+  const leafletRequirements = getLeafletRequirements(product);
+  const leafletRecord = leafletPrintRecords[product.batch] || {};
+  const cartonRecord = cartonPrintRecords[product.batch] || {};
+  const brailleRequirements = product.routeType === "Relabelling" && product.brailleRequired ? getBrailleRequirements(product) : [];
+  const brailleRecord = braillePrintRecords[product.batch] || {};
+  const foldingRecord = leafletFoldingRecords[product.batch] || {};
+  const progress = getUnifiedPrinterProgress(product);
 
   return `
     <div class="label-printing-layout label-detail-layout label-reference-layout">
       <section class="label-reference-window">
         <header class="label-reference-header">
-          <div><strong>Label Printing - ${product.batch}</strong></div>
+          <div><strong>Printer - ${product.batch}</strong></div>
           <button class="classic-button" type="button" data-label-back-queue>Back to Batch Queue</button>
         </header>
 
@@ -13754,17 +13871,12 @@ function renderLabelPrintingWork(stage) {
           ${renderPrintingProductSidebar(product)}
 
           <main class="label-workflow-card">
-            ${reboxingFormHtml}
-            ${product.routeType === "Reboxing" && !formValidForPrint
-              ? '<div class="reboxing-print-gate-message">Complete and sign the Received As and Assembled As sections before printing any labels.</div>'
-              : ""}
             <section class="label-workflow-section label-table-section">
-              <div class="label-workflow-section-title"><h3>Labels to Print</h3><span>${labelRequirements.filter((item) => isPrintItemDone(labelRecord, item.label)).length}/${labelRequirements.length} completed</span></div>
               <div class="label-reference-table-wrap">
                 <table class="classic-table label-requirements-table label-wise-print-table label-reference-table unified-printing-table">
                   <thead>
                     <tr>
-                      <th>Label</th>
+                      <th>Item</th>
                       <th>Reference</th>
                       <th>Size</th>
                       <th>Quantity</th>
@@ -13789,21 +13901,78 @@ function renderLabelPrintingWork(stage) {
                           <td>${product.location || product.warehouse || "-"}</td>
                           <td>${product.onHandQuantity ?? product.stock ?? product.quantity ?? "0"}</td>
                           <td><button class="classic-button row-print-button primary" type="button" data-unified-print data-preview-type="label" data-preview-batch="${product.batch}" data-preview-item="${item.label}" ${!formValidForPrint ? "disabled" : ""}>Print</button></td>
-                          <td><button class="classic-button row-print-button ${done ? "line-done-button" : ""}" type="button" data-mark-print-line-done data-print-line-type="label" data-print-line-batch="${product.batch}" data-print-line-item="${item.label}" ${done || remainingQuantity > 0 ? "disabled" : ""}>${done ? "Done" : "Mark as Done"}</button></td>
+                           <td><button class="classic-button row-print-button ${done ? "line-done-button" : ""}" type="button" data-mark-print-line-done data-print-line-type="label" data-print-line-batch="${product.batch}" data-print-line-item="${item.label}" ${done || remainingQuantity > 0 || !formValidForPrint ? "disabled" : ""}>${done ? "Done" : "Mark as Done"}</button></td>
                           <td>${completion.user
                             ? `<span class="label-print-audit-cell"><b>${completion.user}</b><small>${completion.dateTime || "-"}</small></span>`
                             : '<span class="label-print-audit-empty">-</span>'}</td>
                         </tr>`;
                     }).join("")}
+                    ${leafletRequirements.map((item) => {
+                      const done = isPrintItemDone(leafletRecord, item.label);
+                      const completion = (leafletRecord.itemCompletions || {})[item.label] || {};
+                      return `<tr class="label-print-row ${done ? "label-print-row-complete" : "label-print-row-pending"}">
+                        <td><strong>${item.label}</strong></td>
+                        <td>${item.reference}</td>
+                        <td>${item.size}</td>
+                        <td><strong class="required-quantity-text">${(leafletRecord.quantities || []).find((quantity) => quantity.label === item.label)?.quantity || item.quantity}</strong></td>
+                        <td>${product.location || product.warehouse || "-"}</td>
+                        <td>${getLeafletInHandQuantity(product, leafletRecord, item.label)}</td>
+                        <td><button class="classic-button row-print-button primary" type="button" data-unified-print data-preview-type="leaflet" data-preview-batch="${product.batch}" data-preview-item="${item.label}" ${formValidForPrint ? "" : "disabled"}>Print</button></td>
+                        <td><button class="classic-button row-print-button ${done ? "line-done-button" : ""}" type="button" data-mark-print-line-done data-print-line-type="leaflet" data-print-line-batch="${product.batch}" data-print-line-item="${item.label}" ${done || !formValidForPrint || !(leafletRecord.actualPrintItems || []).includes(item.label) ? "disabled" : ""}>${done ? "Done" : "Mark as Done"}</button></td>
+                        <td>${completion.user ? `<span class="label-print-audit-cell"><b>${completion.user}</b><small>${completion.dateTime || "-"}</small></span>` : '<span class="label-print-audit-empty">-</span>'}</td>
+                      </tr>`;
+                    }).join("")}
+                    ${product.routeType === "Reboxing" ? `
+                      <tr class="label-print-row ${progress.routeDone ? "label-print-row-complete" : "label-print-row-pending"}">
+                        <td><strong>Issued Carton</strong></td>
+                        <td>${product.ecma || product.partNo || "Approved Carton"}</td>
+                        <td>${product.packSize || "-"}</td>
+                        <td><strong class="required-quantity-text">${cartonRecord.printedQuantity || product.cartonQuantity || product.quantity}</strong></td>
+                        <td>${cartonRecord.locationNumber || product.warehouse || "-"}</td>
+                        <td>${product.onHandQuantity ?? product.stock ?? product.quantity ?? "0"}</td>
+                        <td>${progress.routeDone
+                          ? `<button class="classic-button row-print-button" type="button" data-issue-extra-cartons="${product.batch}" ${formValidForPrint ? "" : "disabled"}>Issue Extra</button>`
+                          : `<button class="classic-button row-print-button primary" type="button" title="Issue carton" data-print-cartons="${product.batch}" ${formValidForPrint ? "" : "disabled"}>Issue</button>`}</td>
+                        <td>${progress.routeDone ? '<span class="printer-line-complete">Done</span>' : "Pending"}</td>
+                        <td>${(cartonRecord.itemCompletions || {})["Issued Carton"]?.user
+                          ? `<span class="label-print-audit-cell"><b>${cartonRecord.itemCompletions["Issued Carton"].user}</b><small>${cartonRecord.itemCompletions["Issued Carton"].dateTime || "-"}</small></span>`
+                          : '<span class="label-print-audit-empty">-</span>'}</td>
+                      </tr>` : ""}
+                    ${brailleRequirements.length ? `
+                      ${brailleRequirements.map((item) => {
+                        const done = isPrintItemDone(brailleRecord, item.label);
+                        const completion = (brailleRecord.itemCompletions || {})[item.label] || {};
+                        return `<tr class="label-print-row ${done ? "label-print-row-complete" : "label-print-row-pending"}">
+                          <td><strong>${item.label}</strong></td>
+                          <td>${item.reference}</td>
+                          <td>${item.size}</td>
+                          <td><strong class="required-quantity-text">${(brailleRecord.quantities || []).find((quantity) => quantity.label === item.label)?.quantity || item.quantity}</strong></td>
+                          <td>${product.location || product.warehouse || "-"}</td>
+                          <td>${product.onHandQuantity ?? product.stock ?? product.quantity ?? "0"}</td>
+                          <td><button class="classic-button row-print-button primary" type="button" data-unified-print data-preview-type="braille" data-preview-batch="${product.batch}" data-preview-item="${item.label}">Print</button></td>
+                          <td><button class="classic-button row-print-button ${done ? "line-done-button" : ""}" type="button" data-mark-print-line-done data-print-line-type="braille" data-print-line-batch="${product.batch}" data-print-line-item="${item.label}" ${done || getPrintItemRemaining(brailleRecord, item) > 0 ? "disabled" : ""}>${done ? "Done" : "Mark as Done"}</button></td>
+                          <td>${completion.user ? `<span class="label-print-audit-cell"><b>${completion.user}</b><small>${completion.dateTime || "-"}</small></span>` : '<span class="label-print-audit-empty">-</span>'}</td>
+                        </tr>`;
+                      }).join("")}` : ""}
+                    <tr class="label-print-row ${progress.foldingDone ? "label-print-row-complete" : "label-print-row-pending"}">
+                      <td><strong>Leaflet Folding</strong></td>
+                      <td>${product.ecma || "-"}</td>
+                      <td>${product.packSize || "-"} leaflet</td>
+                      <td><strong class="required-quantity-text">${product.leafletQuantity || product.quantity}</strong></td>
+                      <td>${product.location || product.warehouse || "-"}</td>
+                      <td>${getLeafletInHandQuantity(product, leafletRecord, "Leaflet")}</td>
+                      <td>-</td>
+                      <td><button class="classic-button row-print-button ${progress.foldingDone ? "line-done-button" : ""}" type="button" data-leaflet-folding-done="${product.batch}" ${progress.foldingDone || !formValidForPrint ? "disabled" : ""}>${progress.foldingDone ? "Done" : "Mark as Done"}</button></td>
+                      <td>${foldingRecord.user ? `<span class="label-print-audit-cell"><b>${foldingRecord.user}</b><small>${foldingRecord.dateTime || "-"}</small></span>` : '<span class="label-print-audit-empty">-</span>'}</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
             </section>
 
-            <footer class="label-workflow-footer">
-              <span>Complete all label rows before Print Done.</span>
+            <footer class="label-workflow-footer unified-printing-footer">
               <div>
-                <button class="classic-button primary" type="button" data-label-batch-print-done="${product.batch}" ${!labelRecord.finalized && allLabelsPrinted ? "" : "disabled"}>${labelRecord.finalized ? "Completed" : "Print Done"}</button>
+                <button class="classic-button primary" type="button" data-label-batch-print-done="${product.batch}" ${!labelRecord.printingFinalized && progress.allDone ? "" : "disabled"}>${labelRecord.printingFinalized ? "Completed" : "Print Done"}</button>
               </div>
             </footer>
           </main>
@@ -14430,6 +14599,7 @@ changeOfPackSizeData[batch][section + "Initials"] = `Signed by ${user} on ${now}
       persistChangeOfPackSizeData();
       
       renderStage(currentStageId);
+      if (document.querySelector("#reboxing-form-modal")?.dataset.reboxingBatch === batch) openReboxingFormPopup(batch);
       updateLabelCompletionAvailability();
       updatePreAssemblyAvailability();
     }
@@ -14450,6 +14620,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
       persistChangeOfPackSizeData();
       
       renderStage(currentStageId);
+      if (document.querySelector("#reboxing-form-modal")?.dataset.reboxingBatch === batch) openReboxingFormPopup(batch);
       updateLabelCompletionAvailability();
       updatePreAssemblyAvailability();
     }
@@ -14466,7 +14637,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     }
     if (isAuthenticated) {
       if (targetStage === "label-printing") {
-        printerSection = "menu";
+        printerSection = "label-list";
         labelSelectedProduct = null;
         leafletSelectedProduct = null;
         cartonSelectedProduct = null;
@@ -14576,10 +14747,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     const printType = unifiedPrintTrigger.dataset.previewType;
     const printBatch = unifiedPrintTrigger.dataset.previewBatch;
     const printProduct = getPrintProduct(printType, printBatch);
-    if (printType === "label" && printProduct?.routeType === "Reboxing" && !isChangeOfPackSizeComplete(printProduct)) {
-      statusMessage.textContent = "Complete and sign the Received As and Assembled As sections before printing any labels.";
-      return;
-    }
+    if (!requireReboxingFormBeforePrinting(printProduct)) return;
     openUnifiedPrintDialog(unifiedPrintTrigger.dataset.previewType, unifiedPrintTrigger.dataset.previewBatch, unifiedPrintTrigger.dataset.previewItem);
     return;
   }
@@ -15035,7 +15203,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     };
     batchCheckerActivePclReprintReason = "";
     renderStage("batch-checker");
-    statusMessage.textContent = `PCL printed for ${row.batchNo}. Click Batch Check and confirm your password to print the box label and send it to B&S Batch Add.`;
+    statusMessage.textContent = `PCL printed for ${row.batchNo}. Click Batch Check and confirm your password to complete the line and send it to B&S Batch Add.`;
     return;
   }
 
@@ -15137,7 +15305,7 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     const row = rows[selectedBatchCheckerRowKey];
     const rowKey = row ? getBatchCheckerRowKey(row) : "";
     if (!row || !isBatchCheckerLineLocked(row)) {
-      statusMessage.textContent = "Use Batch Check to confirm your password and print the first box label.";
+      statusMessage.textContent = "Complete Batch Check with your password before printing a box label.";
       return;
     }
     if (openBatchCheckerReprintReason("label", row)) return;
@@ -15882,8 +16050,32 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
   const labelPrintTrigger = event.target.closest("[data-open-label-print]");
   if (labelPrintTrigger) {
     labelSelectedProduct = bnsProducts.find((product) => product.batch === labelPrintTrigger.dataset.openLabelPrint) || null;
+    leafletSelectedProduct = labelSelectedProduct;
+    cartonSelectedProduct = labelSelectedProduct;
+    brailleSelectedProduct = labelSelectedProduct;
+    leafletFoldingSelectedProduct = labelSelectedProduct;
     printerSection = "label-detail";
     renderStage("label-printing");
+    showReboxingFormRequiredPopup(labelSelectedProduct);
+    return;
+  }
+
+  if (event.target.closest("[data-reboxing-popup-close]")) {
+    closeReboxingFormPopup();
+    return;
+  }
+
+  if (event.target.closest("[data-reboxing-popup-continue]")) {
+    const batchNumber = document.querySelector("#reboxing-form-modal")?.dataset.reboxingBatch;
+    const product = bnsProducts.find((item) => item.batch === batchNumber);
+    if (isChangeOfPackSizeComplete(product)) closeReboxingFormPopup();
+    else updateReboxingFormPopupAvailability(batchNumber);
+    return;
+  }
+
+  const reboxingFormView = event.target.closest("[data-view-reboxing-form]");
+  if (reboxingFormView) {
+    viewReboxingForm(reboxingFormView.dataset.viewReboxingForm);
     return;
   }
 
@@ -15891,7 +16083,7 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
     labelSelectedProduct = null;
     printerSection = "label-list";
     renderStage("label-printing");
-    statusMessage.textContent = "Returned to the Label Printing batch queue.";
+    statusMessage.textContent = "Returned to the Printer work queue.";
     return;
   }
 
@@ -16669,12 +16861,13 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
   }
 
   if (event.target.closest("#leaflet-folding-complete-button")) {
-    completeLeafletFolding();
+    if (leafletFoldingSelectedProduct) openLeafletFoldingConfirmation(leafletFoldingSelectedProduct.batch);
     return;
   }
 
   if (event.target.closest("[data-leaflet-folding-done]")) {
-    completeLeafletFolding();
+    const foldingButton = event.target.closest("[data-leaflet-folding-done]");
+    openLeafletFoldingConfirmation(foldingButton.dataset.leafletFoldingDone);
     return;
   }
 
@@ -17187,6 +17380,7 @@ totalBlistersInput.value = total;
     }
     persistChangeOfPackSizeData();
     
+    updateReboxingFormPopupAvailability(batch);
     updateLabelCompletionAvailability();
     updatePreAssemblyAvailability();
   }

@@ -8478,6 +8478,10 @@ input[readonly] {
   padding: 5px 8px;
 }
 
+.unified-printing-footer {
+  justify-content: flex-end;
+}
+
 .label-workflow-footer > span {
   color: #52677a;
   font-size: 11px;
@@ -28650,4 +28654,48 @@ html body .batchchecker-live-layout .batchchecker-product-list tbody tr.batchche
 @media print {
   body.batchchecker-box-print > * { display: none !important; }
   body.batchchecker-box-print #batchchecker-direct-print { position: static !important; display: block !important; visibility: visible !important; width: 100% !important; height: auto !important; overflow: visible !important; background: #fff !important; padding: 0 !important; }
+}
+
+.printer-line-complete { color: #176039; font-weight: 700; }
+
+.label-printing-layout .bns-window > .printer-list-search {
+  box-sizing: border-box !important;
+  width: calc(100% - 24px) !important;
+  max-width: calc(100% - 24px) !important;
+  margin: 8px 12px 10px !important;
+}
+
+.reboxing-form-modal-window {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  background: #fff;
+  border: 1px solid #8aa9bf;
+  border-radius: 7px;
+  box-shadow: 0 18px 50px rgba(9, 33, 54, .3);
+  overflow: hidden;
+}
+.reboxing-form-modal-body { overflow-y: auto; padding: 12px; }
+.reboxing-form-modal-body .reboxing-form-card { margin: 0; }
+.reboxing-form-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-top: 1px solid #b8ccdc;
+  color: #17364d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.label-printing-mode .unified-printing-table tbody tr.label-print-row-complete > td,
+.label-printing-mode .unified-printing-table tbody tr.label-print-row-complete:hover > td {
+  background: #c9ead6 !important;
+  border-color: #82bd99 !important;
+  color: #104b29 !important;
+}
+.label-printing-mode .unified-printing-table tbody tr.label-print-row-complete > td:first-child {
+  border-left: 4px solid #198754 !important;
 }

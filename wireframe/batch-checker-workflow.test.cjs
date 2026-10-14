@@ -112,10 +112,12 @@ async function captureScreenshot(target, fileName) {
     await page.locator('#batchchecker-completion-password').fill('test-confirmation');
     await page.locator('[data-confirm-batchchecker-completion]').click();
     assert.equal(await page.evaluate(() => bnsProducts.length), originalBnsCount + 1);
-    assert.equal(await page.evaluate(() => window.testPrintCount), 1);
-    assert((await page.evaluate(() => window.testDirectPrintContent)).includes('PX8416'));
-    assert(await page.locator('#print-preview-modal').isHidden(), 'Password confirmation prints without opening application preview');
-    assert.equal(await page.locator('#batchchecker-direct-print').count(), 0, 'Temporary print content is cleaned up');
+    assert.equal(await page.evaluate(() => window.testPrintCount || 0), 0, 'Password confirmation must not open printing');
+    assert.equal(await page.evaluate(() => Boolean(batchCheckerPrintedLabelRows[getBatchCheckerRowKey(getBatchCheckerRows()[0])])), false, 'Completion does not falsely mark a label as printed');
+    assert(await page.locator('#print-preview-modal').isHidden(), 'No application preview on password confirmation');
+    assert.equal(await page.locator('#batchchecker-direct-print').count(), 0);
+    assert.equal(await page.evaluate(() => getBatchCheckerRows()[0].status), 'Batch Check Complete');
+    assert.equal(await page.locator('[data-batchchecker-row-index]').count(), 4, 'Completed line remains in Batch Checker');
     assert(await page.locator('#batchchecker-btn-check').isDisabled());
     assert(await page.locator('#batchchecker-generate-pcl').isDisabled());
     assert(await page.locator('#batchchecker-final-check').isDisabled());
@@ -130,6 +132,11 @@ async function captureScreenshot(target, fileName) {
     assert(completed.history.includes('Corrected and verified'));
     assert(completed.downstreamSummary.includes('Invoice and expiry need correction.'));
     assert(completed.saveBlocked);
+    assert.equal(await page.locator('#batchchecker-print-box').innerText(), 'Print Box Label');
+    await page.locator('#batchchecker-print-box').click();
+    assert.equal(await page.evaluate(() => window.testPrintCount), 1, 'Separate Print Box Label action prints');
+    assert((await page.evaluate(() => window.testDirectPrintContent)).includes('PX8416'));
+    assert.equal(await page.locator('#batchchecker-print-box').innerText(), 'Reprint Box Label');
     await page.locator('#batchchecker-print-box').click();
     await page.locator('#batchchecker-reprint-reason').fill('Replacement for damaged label');
     await page.locator('#batchchecker-reprint-confirm').click();
