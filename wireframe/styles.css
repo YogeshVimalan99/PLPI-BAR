@@ -19803,6 +19803,75 @@ body:has(#app-confirm-modal.generated-po-signoff-confirm.modal-backdrop:not(.hid
   background: #f8fafc;
   padding: 10px 12px;
 }
+.rp-rejected-history-head,
+.rp-rejected-history-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(115px, 1fr) minmax(200px, 2fr) minmax(145px, 1.4fr) minmax(240px, 2fr);
+  padding: 12px 14px;
+}
+.rp-rejected-history-head {
+  background: #e8eef7;
+  border-bottom: 1px solid #c9d5e5;
+  color: #172554;
+  font-size: 11px;
+  font-weight: 700;
+}
+.rp-rejected-history-row {
+  border-bottom: 1px solid #dbe4ef;
+  color: #24364f;
+  font-size: 12px;
+}
+.rp-rejected-history-row:last-child { border-bottom: 0; }
+.rp-rejected-po { color: #172554; }
+.rp-rejected-detail,
+.rp-rejected-audit { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rp-rejected-detail b { color: #a72f2f; }
+.rp-rejected-detail small,
+.rp-rejected-audit small { color: #64748b; overflow-wrap: anywhere; }
+.rp-rejected-history-head span:last-child { text-align: center; }
+.rp-rejected-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.rp-rejected-actions .classic-button { white-space: nowrap; }
+.rp-combined-pack-page {
+  background: #fff;
+  border: 1px solid #94a3b8;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .1);
+  box-sizing: border-box;
+  margin: 18px auto 0;
+  min-height: 720px;
+  padding: 24px;
+  width: 700px;
+}
+.rp-combined-pack-page header {
+  align-items: center;
+  border-bottom: 2px solid #1e3a8a;
+  color: #172554;
+  display: flex;
+  font: 11px Tahoma, sans-serif;
+  justify-content: space-between;
+  padding-bottom: 9px;
+}
+.rp-combined-pack-page header strong { font-size: 14px; }
+.rp-combined-pack-file { color: #526780; font: 10px Tahoma, sans-serif; margin: 10px 0 18px; overflow-wrap: anywhere; }
+.rp-combined-pack-pdf { border: 0; height: 850px; width: 100%; }
+.rp-combined-pack-placeholder {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px dashed #b8cae0;
+  color: #64748b;
+  display: flex;
+  font: 12px Tahoma, sans-serif;
+  justify-content: center;
+  min-height: 560px;
+  padding: 20px;
+  text-align: center;
+}
+@media (max-width: 900px) {
+  .rp-rejected-history-head { display: none; }
+  .rp-rejected-history-row { grid-template-columns: 1fr; }
+  .rp-rejected-actions { justify-content: center; }
+}
 .rp-task-tab-content .rp-dashboard-po-grid {
   gap: 8px;
   grid-template-columns: repeat(3, minmax(0, 1fr));

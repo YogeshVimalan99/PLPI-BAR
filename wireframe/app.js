@@ -447,6 +447,7 @@ let rpPackWorkflows = {};
 let selectedRpPackPo = null;
 let selectedRpApprovalPo = null;
 let rpApprovalSignoffs = {};
+let rpFinalRejectionPo = null;
 let rpApprovalAnswers = {};
 let rpApprovalComments = {};
 let rpApprovalSearch = "";
@@ -1253,17 +1254,19 @@ function showSystemMessage(title, header, copy) {
 
 function completeRpReject(poNo, comment) {
   if (rpPackWorkflows[poNo]) {
+    recordGoodsInSummaryEvent(poNo, "RPi Approval", `Returned PO ${poNo} to Goods-In for correction. Reason: ${comment}`, currentLogin?.user || "rp.user");
     rpRejectionComments[poNo] = comment;
     rpPackWorkflows[poNo].status = "Rejected by RPi";
     rpPackWorkflows[poNo].rpChecklistOpen = false;
     rpPackWorkflows[poNo].viewedDocs = {};
     rpPackWorkflows[poNo].rpTaskViewedDocs = {};
+    rpPackWorkflows[poNo].signoff = null;
     rpPackWorkflows[poNo].documents = rpPackWorkflows[poNo].documents.map((doc) => ({ ...doc, uploaded: false, fileName: "", verified: false }));
     selectedRpApprovalPo = null;
     selectedRpPackPo = null;
     rpiModuleView = "pack-creation";
     currentStageId = "rp-pack";
-    statusMessage.textContent = `PO ${poNo} rejected by RPi. Comments returned to RPi Pack Creation for re-upload.`;
+    statusMessage.textContent = `PO ${poNo} returned to Goods-In for correction. Comment: ${comment}`;
     renderStage("rp-pack");
   }
 }
@@ -1274,17 +1277,17 @@ function openRpRejectPopup(poNo) {
     <div class="modal-backdrop" id="system-popup-modal" role="dialog" aria-modal="true" aria-labelledby="system-popup-title">
       <div class="confirm-window app-confirm-window rp-reject-popup-window">
         <div class="internal-title">
-          <span id="system-popup-title">RPi Task Reject</span>
+          <span id="system-popup-title">Return to Goods-In</span>
           <button type="button" class="close-button" data-system-popup-close>X</button>
         </div>
         <div class="confirm-body rp-reject-popup-body">
-          <h2>Reject PO ${htmlSafe(poNo)}</h2>
-          <p>Enter rejection comments to return this PO to RPi Pack for corrected document upload.</p>
-          <textarea id="rp-reject-comment-input" rows="5" placeholder="Rejection comments"></textarea>
+          <h2>Return PO ${htmlSafe(poNo)} to Goods-In</h2>
+          <p>Enter the correction required before this PO is resubmitted.</p>
+          <textarea id="rp-reject-comment-input" rows="5" placeholder="Reason for return"></textarea>
           <small id="rp-reject-comment-error" class="rp-reject-comment-error"></small>
           <div class="confirm-actions">
             <button class="classic-button" type="button" data-system-popup-close>Cancel</button>
-            <button class="classic-button danger" type="button" id="rp-reject-confirm-btn">Reject</button>
+            <button class="classic-button danger" type="button" id="rp-reject-confirm-btn">Return to Goods-In</button>
           </div>
         </div>
       </div>
@@ -1298,7 +1301,7 @@ function openRpRejectPopup(poNo) {
     const error = document.querySelector("#rp-reject-comment-error");
     const comment = input.value.trim();
     if (!comment) {
-      error.textContent = "Rejection comments are required.";
+      error.textContent = "A reason for return is required.";
       input.focus();
       return;
     }
@@ -1306,6 +1309,58 @@ function openRpRejectPopup(poNo) {
     completeRpReject(poNo, comment);
   });
   setTimeout(() => document.querySelector("#rp-reject-comment-input")?.focus(), 0);
+}
+
+function completeRpFinalRejection(poNo, comment) {
+  const poNos = getRpMergePoNos(poNo);
+  const user = currentLogin?.user || "rp.user";
+  const dateTime = getAssemblyAuditTimestamp();
+  const sourceDocuments = poNos.flatMap((memberPoNo) => {
+    const workflow = rpPackWorkflows[memberPoNo];
+    if (!workflow) return [];
+    return [
+      ...workflow.documents.filter((doc) => doc.uploaded).map((doc) => ({
+        poNo: memberPoNo,
+        id: doc.id,
+        name: doc.name,
+        fileName: doc.fileName || `${memberPoNo}_${doc.name}.pdf`,
+        fileBlob: doc.fileBlob || null
+      })),
+      { poNo: memberPoNo, id: "generated-packing-list", name: "Generated PO Packing List", fileName: `${memberPoNo}_Generated_PO_Packing_List.pdf` }
+    ];
+  });
+  const seenFiles = new Set();
+  const includedDocuments = sourceDocuments.filter((doc) => {
+    if (seenFiles.has(doc.fileName)) return false;
+    seenFiles.add(doc.fileName);
+    return true;
+  });
+  const sourceFiles = includedDocuments.map((doc) => doc.fileName);
+  const formFileName = `${poNos.join("-")}_RPi_Rejection_Form.pdf`;
+  const attachmentName = `${poNos.join("-")}_Rejected_Document_Pack.pdf`;
+  const rejection = {
+    poNos: [...poNos], comment, user, dateTime,
+    recipient: "sc.india@bnsdistribution.com",
+    subject: `Reject - ${poNos.join(", ")}`,
+    formFileName, attachmentName,
+    includedFiles: [formFileName, ...sourceFiles],
+    includedDocuments,
+    formAnswers: { ...(rpApprovalAnswers[poNo] || {}) },
+    emailStatus: "Sent (wireframe simulation)"
+  };
+  rpApprovalComments[poNo] = comment;
+  poNos.forEach((memberPoNo) => {
+    const workflow = rpPackWorkflows[memberPoNo];
+    if (!workflow) return;
+    workflow.status = "Rejected by RPi — final";
+    workflow.rpChecklistOpen = false;
+    workflow.rpFinalRejection = rejection;
+  });
+  rpFinalRejectionPo = null;
+  selectedRpApprovalPo = null;
+  renderStage("rp-pack");
+  statusMessage.textContent = `PO ${poNos.join(", ")} rejected. Rejection form and ${sourceFiles.length} source files sent to ${rejection.recipient} (wireframe simulation).`;
+  return rejection;
 }
 
 function openCreateBarDialog(batchNumber) {
@@ -4157,8 +4212,9 @@ function closeDocumentPreview() {
   }
 }
 
-function renderRpApprovalExactPdfModal(poNo, answers, signatureObj) {
+function renderRpApprovalExactPdfModal(poNo, answers, signatureObj, decision = "Approved", packPreview = null) {
   answers = answers || {};
+  const rejected = decision === "Rejected" || signatureObj?.decision === "Rejected";
   const po = rpPackWorkflows[poNo] || {};
   const firstRow = getPackingListRows().find(r => r.orderNo === poNo) || {};
   
@@ -4188,19 +4244,19 @@ function renderRpApprovalExactPdfModal(poNo, answers, signatureObj) {
   };
 
   const sigHtml = signatureObj ? `
-    <div style="border: 1px dashed green; background: #f0fdf4; padding: 6px; border-radius: 4px; display: inline-block;">
-      <span style="color: #15803d; font-weight: bold; font-size: 11px;">Digitally Signed by ${signatureObj.user}</span><br>
-      <span style="color: #15803d; font-size: 9px;">on ${signatureObj.dateTime}</span>
+    <div style="border: 1px dashed ${rejected ? "#b91c1c" : "green"}; background: ${rejected ? "#fef2f2" : "#f0fdf4"}; padding: 6px; border-radius: 4px; display: inline-block;">
+      <span style="color: ${rejected ? "#b91c1c" : "#15803d"}; font-weight: bold; font-size: 11px;">${rejected ? "Rejected" : "Digitally Signed"} by ${htmlSafe(signatureObj.user)}</span><br>
+      <span style="color: ${rejected ? "#b91c1c" : "#15803d"}; font-size: 9px;">on ${htmlSafe(signatureObj.dateTime)}</span>
     </div>
   ` : `
-    <button id="rp-pdf-sign-btn" class="classic-button primary" style="padding: 6px 12px; font-weight: bold; background: #1e3a8a; border-radius: 4px; cursor: pointer; font-size: 11px;">Click to Sign</button>
+    <button id="rp-pdf-sign-btn" class="classic-button ${rejected ? "danger" : "primary"}" style="padding: 6px 12px; font-weight: bold; border-radius: 4px; cursor: pointer; font-size: 11px;">${rejected ? "Sign Rejection" : "Click to Sign"}</button>
   `;
 
   return `
     <div id="rp-pdf-modal-overlay" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 20000; display: flex; align-items: center; justify-content: center; overflow-y: auto; padding: 20px;">
       <div style="background: white; border-radius: 8px; width: 800px; max-width: 95vw; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 15px; position: relative; font-family: Tahoma, sans-serif;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #cbd5e1; padding-bottom: 8px;">
-          <h3 style="margin: 0; color: #1e3a8a; font-size: 14px;">RPi Checks Form F/PLPI/0088/001/v4 - Preview</h3>
+          <h3 style="margin: 0; color: ${rejected ? "#b91c1c" : "#1e3a8a"}; font-size: 14px;">${packPreview ? `Rejected document pack - ${htmlSafe(packPreview.fileName)}` : `RPi Checks Form F/PLPI/0088/001/v4 - ${rejected ? (signatureObj ? "Rejected" : "Rejection Preview") : "Preview"}`}</h3>
           <button id="rp-pdf-close" style="background: none; border: none; font-size: 24px; cursor: pointer; font-weight: bold; color: #64748b;">&times;</button>
         </div>
         
@@ -4319,7 +4375,7 @@ function renderRpApprovalExactPdfModal(poNo, answers, signatureObj) {
               <tr>
                 <td style="border: 1px solid #000000; padding: 6px;" colspan="2">
                   <strong>RPi Comments:</strong><br>
-                  <span style="color: #334155; font-style: italic;">${rpApprovalComments[poNo] || "No comments."}</span>
+                  <span style="color: #334155; font-style: italic;">${htmlSafe(rpApprovalComments[poNo] || "No comments.")}</span>
                 </td>
               </tr>
               <tr>
@@ -4354,6 +4410,7 @@ function renderRpApprovalExactPdfModal(poNo, answers, signatureObj) {
             </div>
             
           </div>
+          ${packPreview?.pagesHtml || ""}
         </div>
         
         <div style="display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid #cbd5e1; padding-top: 12px;">
@@ -4362,6 +4419,32 @@ function renderRpApprovalExactPdfModal(poNo, answers, signatureObj) {
       </div>
     </div>
   `;
+}
+function buildRpRejectedDocumentPackPreview(rejection) {
+  const objectUrls = [];
+  const documents = rejection.includedDocuments || [];
+  const pagesHtml = documents.map((doc, index) => {
+    let content = "";
+    if (doc.fileBlob && typeof Blob !== "undefined" && doc.fileBlob instanceof Blob && typeof URL.createObjectURL === "function") {
+      const url = URL.createObjectURL(doc.fileBlob);
+      objectUrls.push(url);
+      content = `<iframe class="rp-combined-pack-pdf" src="${htmlSafe(url)}" title="${htmlSafe(doc.name)} PDF"></iframe>`;
+    } else if (doc.id === "generated-packing-list") {
+      const rows = getPackingListRows().filter((row) => row.orderNo === doc.poNo);
+      const workflow = rpPackWorkflows[doc.poNo] || {};
+      content = rows.length
+        ? renderGeneratedPackingListSheet(doc.poNo, rows, workflow.packingListGeneratedAt || "Not recorded", workflow.packingListGeneratedBy || "Not recorded")
+        : `<div class="rp-combined-pack-placeholder">Generated Packing List preview is unavailable for this test record.</div>`;
+    } else {
+      content = `<div class="rp-combined-pack-placeholder">This test-data document has no uploaded PDF content to display in the wireframe.</div>`;
+    }
+    return `<section class="rp-combined-pack-page" aria-label="${htmlSafe(doc.name)}">
+      <header><span>Document ${index + 2} of ${documents.length + 1}</span><strong>${htmlSafe(doc.name)}</strong></header>
+      <div class="rp-combined-pack-file">PO ${htmlSafe(doc.poNo)} &nbsp;·&nbsp; ${htmlSafe(doc.fileName)}</div>
+      ${content}
+    </section>`;
+  }).join("");
+  return { fileName: rejection.attachmentName, pagesHtml, objectUrls };
 }
 function getLivePackingListRows() {
   return [
@@ -4709,6 +4792,15 @@ function createPackingWorkflow(poNo) {
   };
 }
 
+function recordGoodsInSummaryEvent(poNos, stage, action, user = currentLogin?.user || "goods.in", dateTime = getAssemblyAuditTimestamp()) {
+  normalizeGoodsReceivingPoNumbers(poNos).forEach((poNo) => {
+    const workflow = rpPackWorkflows[poNo];
+    if (!workflow) return;
+    workflow.summaryEvents ||= [];
+    workflow.summaryEvents.push({ stage, action, user, dateTime });
+  });
+}
+
 function normalizeGoodsReceivingPoNumbers(poNumbers) {
   const source = Array.isArray(poNumbers) ? poNumbers : String(poNumbers || "").split(/[,;\n]+/);
   return [...new Set(source.map((poNo) => String(poNo || "").trim()).filter(Boolean))];
@@ -4791,10 +4883,16 @@ function detachPosFromExistingRpGroups(poNos) {
 function createRpDocumentsQueueFromTabletConfirmation(poNumbers, supplier = "") {
   const poNos = normalizeGoodsReceivingPoNumbers(poNumbers);
   if (!poNos.length) return null;
+  const previousGroupId = rpPackWorkflows[poNos[0]]?.mergeGroupId;
+  const alreadyGrouped = poNos.length > 1 && previousGroupId &&
+    poNos.every((poNo) => rpPackWorkflows[poNo]?.mergeGroupId === previousGroupId) &&
+    rpMergeGroups[previousGroupId]?.poNos.join("|") === poNos.join("|");
   const workflows = poNos.map((poNo) => {
     const workflow = rpPackWorkflows[poNo] || (rpPackWorkflows[poNo] = createPackingWorkflow(poNo));
     workflow.rpDocumentsQueueCreated = true;
     workflow.rpDocumentsQueueSource = "Goods Receiving checklist";
+    workflow.rpDocumentsQueueCreatedAt ||= getAssemblyAuditTimestamp();
+    workflow.rpDocumentsQueueCreatedBy ||= currentLogin?.user || "goods.in";
     workflow.tabletConfirmed = true;
     workflow.tabletConfirmedAt = workflow.tabletConfirmedAt || getAssemblyAuditTimestamp();
     if (supplier) workflow.supplier = supplier;
@@ -4813,6 +4911,9 @@ function createRpDocumentsQueueFromTabletConfirmation(poNumbers, supplier = "") 
       source: "Goods Receiving checklist"
     };
     workflows.forEach((workflow) => { workflow.mergeGroupId = groupId; });
+    if (!alreadyGrouped) {
+      recordGoodsInSummaryEvent(poNos, "RPi Pack Creation", `Grouped checklist POs ${poNos.join(", ")} into one document set.`);
+    }
   }
 
   rpSharedDocumentIds.forEach((docId) => {
@@ -4886,6 +4987,8 @@ function ensureGoodsReceivingWorkflowExamples() {
     recordPackingListAudit("C13631", "Generated Packing List for C13631.", "goods.in", "24 Jul 2026, 12:10:05");
     summaryExampleWorkflow.packingListGeneratedBy = "goods.in";
     summaryExampleWorkflow.packingListGeneratedAt = "24 Jul 2026, 12:10:05";
+    summaryExampleWorkflow.rpDocumentsQueueCreatedBy = "goods.in";
+    summaryExampleWorkflow.rpDocumentsQueueCreatedAt = "24 Jul 2026, 12:10:05";
   }
 
   const addPackingQueueExamples = [
@@ -4985,6 +5088,8 @@ function ensureGoodsReceivingWorkflowExamples() {
     workflow.signoff = { user: "goods.in", dateTime: example.dateTime };
     workflow.rpDocumentsQueueCreated = true;
     workflow.rpDocumentsQueueSource = "RPi Pack Creation";
+    workflow.rpDocumentsQueueCreatedAt = example.dateTime;
+    workflow.rpDocumentsQueueCreatedBy = "goods.in";
     rpPackWorkflows[example.poNo] = workflow;
     generatedPackingListSnapshots[example.poNo] = generatedPackingListSnapshots[example.poNo] || [];
   });
@@ -5001,6 +5106,8 @@ function ensureGoodsReceivingWorkflowExamples() {
   generatedPackingListSnapshots[completedSummaryPo] = generatedPackingListSnapshots[completedSummaryPo] || [];
   completedSummaryWorkflow.packingListGeneratedBy = "goods.in";
   completedSummaryWorkflow.packingListGeneratedAt = "23 Jul 2026, 13:42:18";
+  completedSummaryWorkflow.rpDocumentsQueueCreatedBy = "goods.in";
+  completedSummaryWorkflow.rpDocumentsQueueCreatedAt = "23 Jul 2026, 13:42:18";
   completedSummaryWorkflow.documentsCompletedBy = "goods.in";
   completedSummaryWorkflow.documentsCompletedAt = "23 Jul 2026, 13:58:44";
   completedSummaryWorkflow.documentSetValidatedBy = "goods.in";
@@ -5059,6 +5166,8 @@ function ensureGoodsReceivingWorkflowExamples() {
       const memberWorkflow = rpPackWorkflows[memberPoNo] || (rpPackWorkflows[memberPoNo] = createPackingWorkflow(memberPoNo));
       memberWorkflow.status = "Waiting for QA decision";
       memberWorkflow.checklistExceptionStatus = "Waiting for QA decision";
+      memberWorkflow.rpDocumentsQueueCreatedAt = "22 Jul 2026, 09:15";
+      memberWorkflow.rpDocumentsQueueCreatedBy = "goods.in";
     });
   }
   packingListGenerated = true;
@@ -5131,10 +5240,21 @@ function getRpTaskFilteredPoKeys() {
   return Object.keys(rpPackWorkflows).filter((poKey) => {
     const po = rpPackWorkflows[poKey];
     const isMergePrimary = !po.mergeGroupId || getRpMergePrimaryPo(poKey) === poKey;
-    const readyForRp = po.rpDocumentsQueueCreated === true && !isRpApprovalBypassed(getRpMergePoNos(poKey)) && !po.stockControlEmailSentAt && (po.status === "Signed Off" || po.signoff) && po.status !== "Rejected by RPi" && po.status !== "RPi Approved" && po.status !== "Waiting for QA decision" && !po.checklistExceptionStatus && !rpApprovalSignoffs[poKey] && isMergePrimary;
+    const readyForRp = po.rpDocumentsQueueCreated === true && !isRpApprovalBypassed(getRpMergePoNos(poKey)) && !po.stockControlEmailSentAt && (po.status === "Signed Off" || po.signoff) && po.status !== "Rejected by RPi" && !po.rpFinalRejection && po.status !== "RPi Approved" && po.status !== "Waiting for QA decision" && !po.checklistExceptionStatus && !rpApprovalSignoffs[poKey] && isMergePrimary;
     if (!readyForRp) return false;
     if (!search) return true;
     return getRpMergePoNos(poKey).some((memberPoNo) => memberPoNo.toLowerCase().includes(search));
+  });
+}
+function getRpFinalRejectedPoKeys() {
+  ensureRpExampleWorkflows();
+  return Object.keys(rpPackWorkflows).filter((poKey) => {
+    const workflow = rpPackWorkflows[poKey];
+    return Boolean(workflow?.rpFinalRejection) && (!workflow.mergeGroupId || getRpMergePrimaryPo(poKey) === poKey);
+  }).sort((left, right) => {
+    const leftIndex = Object.keys(rpPackWorkflows).indexOf(left);
+    const rightIndex = Object.keys(rpPackWorkflows).indexOf(right);
+    return rightIndex - leftIndex;
   });
 }
 function getPackingDocCounts(po) {
@@ -5331,7 +5451,7 @@ function renderPackingRpDocuments(stage) {
   const normalizedPoSearch = String(rpDocumentsPoSearch || "").trim().toLowerCase();
   const poKeys = Object.keys(rpPackWorkflows).filter((poKey) => {
     const workflow = rpPackWorkflows[poKey];
-    if (!workflow || workflow.rpDocumentsQueueCreated !== true || workflow.status === "RPi Approved" || workflow.stockControlEmailSentAt || rpApprovalSignoffs[poKey] || workflow.checklistExceptionStatus) return false;
+    if (!workflow || workflow.rpDocumentsQueueCreated !== true || workflow.status === "RPi Approved" || workflow.rpFinalRejection || workflow.stockControlEmailSentAt || rpApprovalSignoffs[poKey] || workflow.checklistExceptionStatus) return false;
     const isPrimary = !workflow.mergeGroupId || getRpMergePrimaryPo(poKey) === poKey;
     const matchesSearch = !normalizedPoSearch || getRpMergePoNos(poKey).some((poNo) => poNo.toLowerCase().includes(normalizedPoSearch));
     return isPrimary && matchesSearch;
@@ -5561,49 +5681,111 @@ function getGoodsInSummaryRecord(poKey) {
   const approved = poNos.every((poNo) => rpApprovalSignoffs[poNo] || rpPackWorkflows[poNo]?.status === "RPi Approved");
   const checklistDecision = checklistDecisionQueue.find((item) => {
     const itemPoNos = getGoodsReceivingChecklistPoNumbers(item);
-    return itemPoNos.some((poNo) => poNos.includes(poNo));
+    return poNos.includes(item.poNo) || itemPoNos.some((poNo) => poNos.includes(poNo));
   }) || null;
-  const unmergeHistory = workflows.flatMap((workflow) => workflow.unmergeHistory || []).filter((record, index, records) => records.findIndex((candidate) => candidate.poNo === record.poNo && candidate.dateTime === record.dateTime) === index);
-  const packingListDate = primaryWorkflow.packingListGeneratedAt || primaryWorkflow.tabletConfirmedAt || signoff?.dateTime || "24 Jul 2026, 09:15";
-  const packingListUser = primaryWorkflow.packingListGeneratedBy || "goods.in";
-  const timeline = getPackingListAuditEvents(poNos);
-  if (!timeline.some((entry) => entry.action.startsWith("Generated Packing List"))) {
-    timeline.push({ stage: "Packing List", action: `Generated Packing List for ${poNos.join(", ")}.`, user: packingListUser, dateTime: packingListDate });
+  const timeline = [];
+  const addAction = (stage, action, user, dateTime) => {
+    if (!action || !dateTime) return;
+    timeline.push({ stage, action, user: user || "Not recorded", dateTime });
+  };
+  addAction(
+    "RPi Pack Creation",
+    `PO ${poNos.join(", ")} entered RPi Pack Creation for document preparation.`,
+    primaryWorkflow.rpDocumentsQueueCreatedBy || primaryWorkflow.packingListGeneratedBy,
+    primaryWorkflow.rpDocumentsQueueCreatedAt || primaryWorkflow.packingListGeneratedAt
+  );
+  if (checklistDecision?.raisedAt) {
+    addAction("Goods Receiving Checklist", "Checklist exception referred to QA.", checklistDecision.raisedBy, checklistDecision.raisedAt);
+  }
+  if (checklistDecision?.qaDecision?.outcome === "Approved for unpacking") {
+    addAction("QA Decision", "QA approved unpacking; Goods-In acceptance was pending.", checklistDecision.qaDecision.user, checklistDecision.qaDecision.dateTime);
+  } else if (checklistDecision?.qaDecision?.outcome === "Rejected by QA") {
+    addAction("QA Decision", `QA rejected the checklist. Reason: ${checklistDecision.qaDecision.comment || "Not recorded"}.`, checklistDecision.qaDecision.user, checklistDecision.qaDecision.dateTime);
+  }
+  if (checklistDecision?.acceptedAt) {
+    addAction("Checklist decision", "Goods-In accepted the QA-approved checklist.", checklistDecision.acceptedBy, checklistDecision.acceptedAt);
+  }
+  getPackingListAuditEvents(poNos).forEach((entry) => {
+    addAction(entry.stage || "Packing List", entry.action, entry.user, entry.dateTime);
+  });
+  const hasGeneratedPackingList = timeline.some((entry) => entry.action.startsWith("Generated Packing List"));
+  if (!hasGeneratedPackingList && primaryWorkflow.packingListGeneratedAt) {
+    addAction("Packing List", `Generated Packing List for ${poNos.join(", ")}.`, primaryWorkflow.packingListGeneratedBy, primaryWorkflow.packingListGeneratedAt);
   }
   if (primaryWorkflow.documentsCompletedAt) {
-    timeline.push({ stage: "RPi Pack Creation", action: `Uploaded all ${getRpRequiredDocuments().length} required source files for ${poNos.join(", ")}.`, user: primaryWorkflow.documentsCompletedBy || "goods.in", dateTime: primaryWorkflow.documentsCompletedAt });
+    addAction("RPi Pack Creation", `Uploaded all required source files for ${poNos.join(", ")}.`, primaryWorkflow.documentsCompletedBy, primaryWorkflow.documentsCompletedAt);
   }
   if (primaryWorkflow.documentSetValidatedAt) {
-    timeline.push({ stage: "RPi Pack Creation", action: "Checked the uploaded files and completed the PO document set.", user: primaryWorkflow.documentSetValidatedBy || "goods.in", dateTime: primaryWorkflow.documentSetValidatedAt });
+    addAction("RPi Pack Creation", "Checked the uploaded files and completed the PO document set.", primaryWorkflow.documentSetValidatedBy, primaryWorkflow.documentSetValidatedAt);
   }
+  const auditEvents = workflows.flatMap((workflow) => workflow.summaryEvents || []);
+  const seenAuditEvents = new Set();
+  auditEvents.forEach((entry) => {
+    const key = `${entry.stage}|${entry.action}|${entry.user}|${entry.dateTime}`;
+    if (seenAuditEvents.has(key)) return;
+    seenAuditEvents.add(key);
+    addAction(entry.stage, entry.action, entry.user, entry.dateTime);
+  });
+  const unmergeHistory = workflows.flatMap((workflow) => workflow.unmergeHistory || []);
+  const seenUnmerges = new Set();
   unmergeHistory.forEach((entry) => {
-    timeline.push({ stage: "RPi Pack Creation", action: `Unmerged PO ${entry.poNo}. Reason: ${entry.reason}`, user: entry.user, dateTime: entry.dateTime });
+    const key = `${entry.poNo}|${entry.dateTime}`;
+    if (seenUnmerges.has(key)) return;
+    seenUnmerges.add(key);
+    addAction("RPi Pack Creation", `Unmerged PO ${entry.poNo}. Reason: ${entry.reason}`, entry.user, entry.dateTime);
   });
   if (primaryWorkflow.stockControlEmailSentAt) {
-    timeline.push({ stage: "RPi Pack Creation", action: `Combined the uploaded files into ${primaryWorkflow.combinedPdfFileName} and emailed the document pack to Stock Control India. RPi Approval not required.`, user: primaryWorkflow.stockControlEmailSentBy || signoff?.user || "goods.in", dateTime: primaryWorkflow.stockControlEmailSentAt });
+    addAction("RPi Pack Creation", `Combined the documents into ${primaryWorkflow.combinedPdfFileName || "one PDF"} and sent the pack to Stock Control India. RPi Approval not required.`, primaryWorkflow.stockControlEmailSentBy, primaryWorkflow.stockControlEmailSentAt);
   } else if (signoff) {
-    timeline.push({ stage: "RPi Pack Creation", action: `Sent ${poNos.length > 1 ? "the merged PO set" : poNos[0]} to the RPi Approval queue.`, user: signoff.user, dateTime: signoff.dateTime });
+    addAction("RPi Pack Creation", `Submitted ${poNos.join(", ")} to the RPi Approval queue.`, signoff.user, signoff.dateTime);
   }
   if (primaryWorkflow.rpiReviewStartedAt) {
-    timeline.push({ stage: "RPi Approval", action: `Opened the PO document pack and started the RPi review for ${poNos.join(", ")}.`, user: primaryWorkflow.rpiReviewStartedBy || "rp.user", dateTime: primaryWorkflow.rpiReviewStartedAt });
+    addAction("RPi Approval", `Opened the document pack and started RPi review for ${poNos.join(", ")}.`, primaryWorkflow.rpiReviewStartedBy, primaryWorkflow.rpiReviewStartedAt);
   }
   if (primaryWorkflow.rpiDocumentsReviewedAt) {
-    timeline.push({ stage: "RPi Approval", action: "Reviewed all required source files and the generated Packing List.", user: primaryWorkflow.rpiDocumentsReviewedBy || "rp.user", dateTime: primaryWorkflow.rpiDocumentsReviewedAt });
+    addAction("RPi Approval", "Reviewed the required source files and generated Packing List.", primaryWorkflow.rpiDocumentsReviewedBy, primaryWorkflow.rpiDocumentsReviewedAt);
   }
   if (approved) {
-    timeline.push({ stage: "RPi Approval", action: `Completed RPi approval for ${poNos.join(", ")}.`, user: approval?.user || "rp.user", dateTime: approval?.dateTime || primaryWorkflow.rpApprovedAt || "Completed" });
+    addAction("RPi Approval", `Completed RPi approval for ${poNos.join(", ")}.`, approval?.user, approval?.dateTime || primaryWorkflow.rpApprovedAt);
   }
-  const currentStage = primaryWorkflow.stockControlEmailSentAt
+  if (primaryWorkflow.rpFinalRejection) {
+    const rejected = primaryWorkflow.rpFinalRejection;
+    addAction("RPi Approval", `Rejected ${poNos.join(", ")}. Reason: ${rejected.comment}. Signed rejection form and document pack sent to ${rejected.recipient}.`, rejected.user, rejected.dateTime);
+  }
+  batchCheckerDb.filter((row) => poNos.includes(row.orderNo)).forEach((row) => {
+    const rowKey = getBatchCheckerRowKey(row);
+    (batchCheckerVerificationHistory[rowKey] || []).forEach((entry) => {
+      addAction("Batch Checker", `${entry.outcome} for batch ${entry.batch}.${entry.comment ? ` Comment: ${entry.comment}` : ""}`, entry.user, entry.dateTime);
+    });
+    const pcl = batchCheckerPclGeneratedRows[rowKey];
+    if (pcl) {
+      addAction("Batch Checker", `${pcl.incompleteRegulatoryReviewCopy ? "Printed an incomplete Regulatory review PCL copy" : "Printed the PCL"} for batch ${row.batchNo}.${pcl.comments ? ` Comment: ${pcl.comments}` : ""}`, pcl.user, pcl.dateTime);
+    }
+    const batchCheck = batchCheckerCompletedRows[rowKey];
+    if (batchCheck) {
+      addAction("Batch Checker", `Completed Batch Check for batch ${row.batchNo}.`, batchCheck.user, batchCheck.dateTime);
+    }
+  });
+  timeline.sort((a, b) => {
+    const aTime = Date.parse(a.dateTime.replace(",", ""));
+    const bTime = Date.parse(b.dateTime.replace(",", ""));
+    return Number.isFinite(aTime) && Number.isFinite(bTime) ? aTime - bTime : 0;
+  });
+  const currentStage = primaryWorkflow.rpFinalRejection
+    ? "Rejected by RPi"
+    : primaryWorkflow.stockControlEmailSentAt
     ? "Sent to Stock Control India"
     : approved
       ? "RPi Approved"
+      : signoff
+        ? "RPi review"
+      : checklistDecision?.status === "Rejected by QA"
+        ? "Rejected by QA"
       : checklistDecision?.status === "Approved for unpacking"
       ? "Checklist acceptance"
       : checklistDecision?.status === "Waiting for QA decision"
         ? "Waiting for QA decision"
-        : signoff
-          ? "RPi review"
-          : "RPi Pack Creation";
+        : "RPi Pack Creation";
   return {
     primaryPoNo,
     poNos,
@@ -5614,7 +5796,7 @@ function getGoodsInSummaryRecord(poKey) {
     approved,
     currentStage,
     timeline,
-    lastUpdated: timeline[timeline.length - 1]?.dateTime || packingListDate
+    lastUpdated: timeline[timeline.length - 1]?.dateTime || "Not recorded"
   };
 }
 function getGoodsInSummaryRecords() {
@@ -5664,7 +5846,7 @@ function renderGoodsInSummaryWork() {
 function buildGoodsInSummaryPdfMarkup(record) {
   return `
     <article class="goods-summary-pdf-page goods-summary-simple-pdf">
-      <header><div><strong>B&amp;S HEALTHCARE</strong><span>PARALLEL IMPORT</span></div><div><h1>GOODS-IN SUMMARY</h1></div><div><strong>${record.approved ? "COMPLETED" : "IN PROGRESS"}</strong><span>${escapeQaChecklistText(record.lastUpdated)}</span></div></header>
+      <header><div><strong>B&amp;S HEALTHCARE</strong><span>PARALLEL IMPORT</span></div><div><h1>GOODS-IN SUMMARY</h1></div><div><strong>${["RPi Approved", "Rejected by RPi", "Rejected by QA", "Sent to Stock Control India"].includes(record.currentStage) ? "COMPLETED" : "IN PROGRESS"}</strong><span>${escapeQaChecklistText(record.lastUpdated)}</span></div></header>
       <section class="goods-summary-pdf-meta goods-summary-simple-pdf-meta"><div><span>PO Number(s)</span><strong>${record.poNos.join(", ")}</strong></div><div><span>Supplier</span><strong>${escapeQaChecklistText(record.supplier)}</strong></div><div><span>Current stage</span><strong>${escapeQaChecklistText(record.currentStage)}</strong></div></section>
       <h2>Action History</h2>
       <table class="goods-summary-pdf-action-table"><thead><tr><th>Stage</th><th>Action</th><th>User</th><th>Date / Time</th></tr></thead><tbody>${record.timeline.map((entry) => `<tr><td>${escapeQaChecklistText(entry.stage)}</td><td>${escapeQaChecklistText(entry.action)}</td><td>${escapeQaChecklistText(entry.user)}</td><td>${escapeQaChecklistText(entry.dateTime)}</td></tr>`).join("")}</tbody></table>
@@ -7532,7 +7714,7 @@ function renderRpApprovalFormInteractive(activePoKey, isApprovedByRp, stage) {
         <div class="modern-checklist-title">5. Conclusion</div>
         <div style="padding: 10px 0;">
           <label style="font-size: 11px; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">RPi Comments:</label>
-          <textarea id="rp-form-comments" style="width: 100%; height: 60px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px; font-size: 11px;" ${isApprovedByRp ? "disabled" : ""} placeholder="Enter any RPi comments...">${comments}</textarea>
+          <textarea id="rp-form-comments" style="width: 100%; height: 60px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px; font-size: 11px;" ${isApprovedByRp ? "disabled" : ""} ${rpFinalRejectionPo === activePoKey ? "required" : ""} placeholder="${rpFinalRejectionPo === activePoKey ? "Enter the reason for rejecting the PO" : "Enter any RPi comments..."}">${htmlSafe(comments)}</textarea>
         </div>
         <div class="modern-check-card">
           <span class="modern-check-question">RPi Checks completed and stock is suitable for processing</span>
@@ -7560,6 +7742,7 @@ function mergeSelectedRpPos() {
   const groupId = `MRG-${Date.now()}`;
   rpMergeGroups[groupId] = { id: groupId, poNos, supplier: workflows[0].supplier, sharedDocIds: [...rpSharedDocumentIds] };
   workflows.forEach((workflow) => { workflow.mergeGroupId = groupId; });
+  recordGoodsInSummaryEvent(poNos, "RPi Pack Creation", `Merged POs ${poNos.join(", ")} into one document set.`);
   rpMergeSelections.clear();
   selectedRpPackPo = poNos[0];
   selectedRpApprovalPo = null;
@@ -7813,6 +7996,7 @@ function renderRpPackWork(stage) {
   }
   
   const completedPoKeys = getRpTaskFilteredPoKeys();
+  const rejectedPoKeys = getRpFinalRejectedPoKeys();
   const pendingQaCount = checklistDecisionQueue.filter((item) => item.status === "Waiting for QA decision").length;
   const qaQueueItems = checklistDecisionQueue.filter((item) => ["Waiting for QA decision", "Rejected by QA"].includes(item.status));
   const waitingQaHtml = qaQueueItems.map((item) => {
@@ -7850,8 +8034,24 @@ function renderRpPackWork(stage) {
       }).join("")
     : `<div class="rp-dashboard-empty">No PO numbers are waiting for RPi review.</div>`;  const activePo = selectedRpApprovalPo ? rpPackWorkflows[selectedRpApprovalPo] : null;
   if (!activePo) {
-    const totalActiveTasks = completedPoKeys.length + pendingQaCount;
-    const activeQueueHtml = rpTaskQueueTab === "qa" ? `
+    const rejectedHistoryHtml = rejectedPoKeys.length ? rejectedPoKeys.map((poKey) => {
+      const rejection = rpPackWorkflows[poKey].rpFinalRejection;
+      return `
+        <div class="rp-rejected-history-row">
+          <strong class="rp-rejected-po">${htmlSafe(rejection.poNos.join(", "))}</strong>
+          <span class="rp-rejected-detail"><b>Rejected by RPi</b><small>${htmlSafe(rejection.comment)}</small></span>
+          <span class="rp-rejected-audit">${htmlSafe(rejection.user)}<small>${htmlSafe(rejection.dateTime)}</small></span>
+          <span class="rp-rejected-actions">
+            <button class="classic-button" type="button" data-rp-rejected-pack="${htmlSafe(poKey)}">View document pack</button>
+          </span>
+        </div>`;
+    }).join("") : `<div class="rp-dashboard-empty">No final RPi rejections have been recorded.</div>`;
+    const activeQueueHtml = rpTaskQueueTab === "rejected" ? `
+      <section class="rp-task-card-section rp-task-tab-panel">
+        <div class="rp-rejected-history-head"><span>PO Number(s)</span><span>Decision / reason</span><span>RP / Date &amp; Time</span><span>Records</span></div>
+        ${rejectedHistoryHtml}
+      </section>
+    ` : rpTaskQueueTab === "qa" ? `
       <section class="rp-task-card-section qa rp-task-tab-panel">
         <div class="rp-qa-decision-list"><div class="rp-qa-list-head"><span>PO Number</span><span>Checklist exception</span><span>Checklist result</span><span>Status</span><span>Action</span></div>${waitingQaHtml || `<div class="rp-dashboard-empty">No checklist exceptions are waiting for QA.</div>`}</div>
       </section>
@@ -7870,6 +8070,7 @@ function renderRpPackWork(stage) {
         <div class="rp-task-queue-tabs" role="tablist" aria-label="RPi task queues">
           <button class="${rpTaskQueueTab === "po" ? "active" : ""}" type="button" role="tab" aria-selected="${rpTaskQueueTab === "po"}" data-rp-task-queue-tab="po">PO Work Queue <span>${completedPoKeys.length}</span></button>
           <button class="${rpTaskQueueTab === "qa" ? "active" : ""}" type="button" role="tab" aria-selected="${rpTaskQueueTab === "qa"}" data-rp-task-queue-tab="qa">QA Decision <span>${pendingQaCount}</span></button>
+          <button class="${rpTaskQueueTab === "rejected" ? "active" : ""}" type="button" role="tab" aria-selected="${rpTaskQueueTab === "rejected"}" data-rp-task-queue-tab="rejected">Rejected <span>${rejectedPoKeys.length}</span></button>
         </div>
         <div class="rp-task-tab-content">${activeQueueHtml}</div>
       </div>
@@ -8019,27 +8220,28 @@ function renderRpPackWork(stage) {
     const allRpDocumentsVerified = areAllRpDocumentsVerified(activePo.poNo);
     const anyRpDocumentRejected = hasAnyRpDocumentRejected(activePo.poNo);
     const checklistApprovedToOpen = activePo.rpChecklistOpen === true;
+    const rejectingPo = rpFinalRejectionPo === activePo.poNo;
 
     let checklistPopupHtml = "";
     if (checklistApprovedToOpen) {
       checklistPopupHtml = `
-        <dialog id="rp-checklist-dialog" aria-label="RPi Approval Checklist">
+        <dialog id="rp-checklist-dialog" aria-label="RPi ${rejectingPo ? "Rejection" : "Approval"} Checklist">
         <div class="rp-documents-main rp-checklist-full-window" style="display: flex; flex-direction: column; gap: 12px; font-family: Tahoma, sans-serif; min-height: 650px;">
           <div class="rp-documents-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">
             <div>
-              <h3 style="margin: 0; color: #1f3a5f; font-size: 20px; font-weight: bold;">RPi Approval Checklist - PO ${activePoLabel}</h3>
-              <p style="margin: 2px 0 0; font-size: 12px; color: #666;">${activeMergeGroup ? `Shared files were reviewed once; ${activePoNos.length} separate packing lists and PO files were reviewed individually.` : "All required documents have been viewed by RPi."} Complete the checklist and generate the signed form.</p>
+              <h3 style="margin: 0; color: #1f3a5f; font-size: 20px; font-weight: bold;">RPi ${rejectingPo ? "Rejection" : "Approval"} Checklist - PO ${activePoLabel}</h3>
+              <p style="margin: 2px 0 0; font-size: 12px; color: #666;">${rejectingPo ? "Review the same form and enter a reason in RPi Comments before rejecting the entire PO set." : `${activeMergeGroup ? `Shared files were reviewed once; ${activePoNos.length} separate packing lists and PO files were reviewed individually.` : "All required documents have been viewed by RPi."} Complete the checklist and generate the signed form.`}</p>
             </div>
-            <div class="rp-task-header-actions"><button class="classic-button" type="button" data-rp-checklist-close>Close</button><span class="viewed-badge ${isApprovedByRp ? "viewed" : "pending"}">${isApprovedByRp ? "Approved" : "Pending RPi Sign-Off"}</span></div>
+            <div class="rp-task-header-actions"><button class="classic-button" type="button" data-rp-checklist-close>Close</button><span class="viewed-badge ${isApprovedByRp ? "viewed" : "pending"}">${isApprovedByRp ? "Approved" : (rejectingPo ? "Rejection pending" : "Pending RPi Sign-Off")}</span></div>
           </div>
           <div class="rp-task-checklist-scroll-panel" style="flex: 1; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 6px; background: #ffffff; padding: 8px; min-height: 540px;">
             ${checksHtml}
           </div>
           <div class="signature-grid rp-doc-signoff-row" style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px;">
             <label>Responsible Person <input value="${currentLogin ? currentLogin.user : stage.user}" readonly></label>
-            <label>Date / Time <input value="${isApprovedByRp ? rpSignoff.dateTime : "Pending RPi approval"}" readonly></label>
+            <label>Date / Time <input value="${isApprovedByRp ? rpSignoff.dateTime : (rejectingPo ? "Pending RPi rejection" : "Pending RPi approval")}" readonly></label>
             <div class="signoff-action process-signoff-action">
-              <button class="classic-button primary" type="button" id="rp-verify-signoff-btn" ${isApprovedByRp ? "disabled" : ""}>Generate & Sign</button>
+              ${rejectingPo ? `<button class="classic-button danger" type="button" id="rp-final-reject-btn">Preview Rejection</button>` : `<button class="classic-button primary" type="button" id="rp-verify-signoff-btn" ${isApprovedByRp ? "disabled" : ""}>Generate & Sign</button>`}
             </div>
           </div>
         </div>
@@ -8064,7 +8266,7 @@ function renderRpPackWork(stage) {
             </div>
           `}
           <div class="rp-checklist-placeholder" style="padding: 25px; text-align: center; border: 2px dashed #cbd5e1; border-radius: 8px; background: #fafafa; font-family: Tahoma, sans-serif;">
-            <h4 style="margin: 0 0 6px; color: #334155; font-size: 14px; font-weight: bold;">${allRpDocumentsVerified ? "All files approved" : (anyRpDocumentRejected ? "Rejected file selected" : "Approval decision pending")}</h4>${allRpDocumentsVerified || anyRpDocumentRejected ? `<p style="margin: 0 0 12px; color: #64748b; font-size: 11px;">Choose the final approval decision.</p>` : ""}<div style="display:flex; justify-content:center; gap:10px;"><button class="classic-button primary" type="button" data-rp-approve-open-checklist="${activePo.poNo}" ${allRpDocumentsVerified || anyRpDocumentRejected ? "" : "disabled"}>Approve</button><button class="classic-button danger" type="button" data-rp-reject-po="${activePo.poNo}" ${allRpDocumentsVerified || anyRpDocumentRejected ? "" : "disabled"}>Reject</button></div>
+            <h4 style="margin: 0 0 6px; color: #334155; font-size: 14px; font-weight: bold;">${allRpDocumentsVerified ? "All files approved" : (anyRpDocumentRejected ? "Rejected file selected" : "Approval decision pending")}</h4>${allRpDocumentsVerified || anyRpDocumentRejected ? `<p style="margin: 0 0 12px; color: #64748b; font-size: 11px;">Choose the final decision.</p>` : ""}<div style="display:flex; justify-content:center; gap:10px;"><button class="classic-button primary" type="button" data-rp-approve-open-checklist="${activePo.poNo}" ${allRpDocumentsVerified || anyRpDocumentRejected ? "" : "disabled"}>Approve</button><button class="classic-button" type="button" data-rp-return-po="${activePo.poNo}" ${allRpDocumentsVerified || anyRpDocumentRejected ? "" : "disabled"}>Return to Goods-In</button><button class="classic-button danger" type="button" data-rp-reject-po="${activePo.poNo}" ${allRpDocumentsVerified || anyRpDocumentRejected ? "" : "disabled"}>Reject</button></div>
           </div>
         </div>
       `;
@@ -14365,6 +14567,7 @@ function renderStage(stageId) {
       getRpMergePoNos(selectedRpApprovalPo).forEach(poNo => {
         if (rpPackWorkflows[poNo]) rpPackWorkflows[poNo].rpChecklistOpen = false;
       });
+      rpFinalRejectionPo = null;
       renderStage("rp-pack");
       document.querySelector("[data-rp-approve-open-checklist]")?.focus();
     };
@@ -15589,6 +15792,8 @@ changeOfPackSizeData[batch][section + "Initials"] = "";
     savedWorkflow.supplier = savedRows.find((row) => row.suppName)?.suppName || savedWorkflow.supplier || "Supplier pending";
     savedWorkflow.rpDocumentsQueueCreated = true;
     savedWorkflow.rpDocumentsQueueSource = "Add Packing List";
+    savedWorkflow.rpDocumentsQueueCreatedAt ||= getAssemblyAuditTimestamp();
+    savedWorkflow.rpDocumentsQueueCreatedBy ||= currentLogin?.user || "goods.in";
     if (!savedWorkflow.status || savedWorkflow.status === "Pending Uploads") savedWorkflow.status = "Documents Pending";
     statusMessage.textContent = `PO ${savedPoNo} saved. Its RPi Pack Creation queue is now available.`;
     return;
@@ -15887,10 +16092,32 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
 
   const rpTaskQueueTabButton = event.target.closest("[data-rp-task-queue-tab]");
   if (rpTaskQueueTabButton) {
-    rpTaskQueueTab = rpTaskQueueTabButton.dataset.rpTaskQueueTab === "qa" ? "qa" : "po";
+    const requestedTab = rpTaskQueueTabButton.dataset.rpTaskQueueTab;
+    rpTaskQueueTab = ["po", "qa", "rejected"].includes(requestedTab) ? requestedTab : "po";
     selectedRpApprovalPo = null;
     renderStage("rp-pack");
-    statusMessage.textContent = rpTaskQueueTab === "qa" ? "QA Decision queue opened." : "PO Work Queue opened.";
+    statusMessage.textContent = rpTaskQueueTab === "qa" ? "QA Decision queue opened." : rpTaskQueueTab === "rejected" ? "Rejected history opened (read-only)." : "PO Work Queue opened.";
+    return;
+  }
+
+  const rejectedPackButton = event.target.closest("[data-rp-rejected-pack]");
+  if (rejectedPackButton) {
+    const poNo = rejectedPackButton.dataset.rpRejectedPack;
+    const rejection = rpPackWorkflows[poNo]?.rpFinalRejection;
+    if (!rejection) return;
+    const packPreview = buildRpRejectedDocumentPackPreview(rejection);
+    const overlay = document.createElement("div");
+    overlay.id = "rp-pdf-modal-container";
+    overlay.innerHTML = renderRpApprovalExactPdfModal(poNo, rejection.formAnswers || rpApprovalAnswers[poNo], {
+      user: rejection.user, dateTime: rejection.dateTime, decision: "Rejected"
+    }, "Rejected", packPreview);
+    document.body.appendChild(overlay);
+    const closePack = () => {
+      packPreview.objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      overlay.remove();
+    };
+    overlay.querySelector("#rp-pdf-close")?.addEventListener("click", closePack);
+    overlay.querySelector("#rp-pdf-cancel")?.addEventListener("click", closePack);
     return;
   }
 
@@ -15972,6 +16199,7 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
   if (rpApproveOpen) {
     const poNo = rpApproveOpen.dataset.rpApproveOpenChecklist;
     if (rpPackWorkflows[poNo]) {
+      rpFinalRejectionPo = null;
       const approvedPoNos = getRpMergePoNos(poNo);
       approvedPoNos.forEach((approvedPoNo) => {
         rpPackWorkflows[approvedPoNo].rpChecklistOpen = true;
@@ -15986,7 +16214,52 @@ const rpViewTrigger = event.target.closest("[data-rp-view-file]");
 
   const rpRejectPo = event.target.closest("[data-rp-reject-po]");
   if (rpRejectPo) {
-    openRpRejectPopup(rpRejectPo.dataset.rpRejectPo);
+    const poNo = rpRejectPo.dataset.rpRejectPo;
+    if (!rpPackWorkflows[poNo]) return;
+    rpFinalRejectionPo = poNo;
+    getRpMergePoNos(poNo).forEach((memberPoNo) => {
+      rpPackWorkflows[memberPoNo].rpChecklistOpen = true;
+    });
+    selectedRpApprovalPo = poNo;
+    renderStage("rp-pack");
+    document.querySelector("#rp-form-comments")?.focus();
+    return;
+  }
+
+  const rpReturnPo = event.target.closest("[data-rp-return-po]");
+  if (rpReturnPo) {
+    openRpRejectPopup(rpReturnPo.dataset.rpReturnPo);
+    return;
+  }
+
+  if (event.target.id === "rp-final-reject-btn") {
+    const poNo = selectedRpApprovalPo;
+    if (!poNo || rpFinalRejectionPo !== poNo || !rpPackWorkflows[poNo]) return;
+    const commentsField = document.querySelector("#rp-form-comments");
+    const comment = String(commentsField?.value || "").trim();
+    if (!comment) {
+      commentsField?.setCustomValidity("A rejection comment is required.");
+      commentsField?.reportValidity();
+      commentsField?.focus();
+      return;
+    }
+    commentsField.setCustomValidity("");
+    rpApprovalComments[poNo] = comment;
+    document.querySelector("#rp-checklist-dialog")?.close();
+    const overlay = document.createElement("div");
+    overlay.id = "rp-pdf-modal-container";
+    overlay.innerHTML = renderRpApprovalExactPdfModal(poNo, rpApprovalAnswers[poNo], null, "Rejected");
+    document.body.appendChild(overlay);
+    const closePreview = () => {
+      overlay.remove();
+      renderStage("rp-pack");
+    };
+    overlay.querySelector("#rp-pdf-close").addEventListener("click", closePreview);
+    overlay.querySelector("#rp-pdf-cancel").addEventListener("click", closePreview);
+    overlay.querySelector("#rp-pdf-sign-btn").addEventListener("click", () => {
+      completeRpFinalRejection(poNo, comment);
+      overlay.remove();
+    });
     return;
   }
 
@@ -17070,6 +17343,7 @@ document.addEventListener("change", async (event) => {
   if (event.target.matches("[data-rp-diagnostic-batch]")) {
     const primaryPoNo = getRpMergePrimaryPo(selectedRpPackPo);
     const poNos = getRpMergePoNos(primaryPoNo);
+    const diagnosticChanged = poNos.some((poNo) => rpPackWorkflows[poNo]?.diagnosticBatch !== event.target.checked);
     poNos.forEach((poNo) => {
       const workflow = rpPackWorkflows[poNo];
       if (!workflow) return;
@@ -17080,6 +17354,11 @@ document.addEventListener("change", async (event) => {
         else if (rpApprovalAnswers[poNo][field] === "NA") delete rpApprovalAnswers[poNo][field];
       });
     });
+    if (diagnosticChanged) {
+      recordGoodsInSummaryEvent(poNos, "RPi Pack Creation", event.target.checked
+        ? "Marked the document set as a Diagnostic Batch; Supplier Declaration not required."
+        : "Removed Diagnostic Batch status; Supplier Declaration required again.");
+    }
     renderStage("rp-pack");
     setTimeout(updateRpDocumentsAvailability, 0);
     statusMessage.textContent = event.target.checked
@@ -17112,9 +17391,14 @@ document.addEventListener("change", async (event) => {
     if (file && rpPackWorkflows[poNo]) {
       const doc = rpPackWorkflows[poNo].documents.find((d) => d.id === docId);
       if (doc) {
+        const previousFileName = doc.uploaded ? doc.fileName : "";
         doc.uploaded = true;
         doc.fileName = file.name;
+        doc.fileBlob = file;
         doc.verified = false;
+        recordGoodsInSummaryEvent(poNo, "RPi Pack Creation", previousFileName
+          ? `Re-uploaded ${doc.name}: replaced ${previousFileName} with ${file.name}.`
+          : `Uploaded ${doc.name}: ${file.name}.`);
         if (rpPackWorkflows[poNo].status === "Rejected by RPi") {
           rpPackWorkflows[poNo].viewedDocs = {};
           rpPackWorkflows[poNo].rpTaskViewedDocs = {};
@@ -17147,11 +17431,16 @@ let doc = workflow.documents.find((item) => item.id === docId);
           doc = { ...definition, uploaded: false, fileName: "", verified: false };
           workflow.documents.push(doc);
         }
+        const previousFileName = doc.uploaded ? doc.fileName : "";
         doc.uploaded = true;
         doc.fileName = file.name;
+        doc.fileBlob = file;
         doc.verified = false;
         doc.uploadedFrom = currentStageId === "rp-pack" ? "RPi Pack Creation re-upload" : "Add Packing List";
         doc.uploadedForPo = poNo;
+        recordGoodsInSummaryEvent(workflowPoNo, currentStageId === "rp-pack" ? "RPi Pack Creation" : "Packing List", previousFileName
+          ? `Re-uploaded ${doc.name} for PO ${poNo}: replaced ${previousFileName} with ${file.name}.`
+          : `Uploaded ${doc.name} for PO ${poNo}: ${file.name}.`);
         if (workflow.status === "Rejected by RPi") {
           workflow.viewedDocs = {};
           workflow.rpTaskViewedDocs = {};
